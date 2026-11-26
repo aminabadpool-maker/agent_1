@@ -1,0 +1,24 @@
+<scene name="blender_like_demo">
+  <camera x="0.0" y="2.1" z="12.5" yaw="0.0" pitch="-0.18" fov="430.0" orbit_cam="1" />
+  <light x="7.0" y="10.0" z="8.0" r="255" g="245" b="225" intensity="0.90" />
+  <light x="-7.5" y="5.0" z="-4.0" r="130" g="175" b="245" intensity="0.40" />
+
+  <object name="floor" type="plane" x="0.0" y="-1.4" z="0.0" sx="18.0" sz="18.0" rx="0.0" ry="0.0" rz="0.0" r="68" g="78" b="92" spec="0.10" emit="0.0" spin_y="0.0" />
+  <object name="hero_cube" type="box" x="-2.1" y="-0.3" z="-0.6" sx="1.8" sy="1.8" sz="1.8" rx="0.0" ry="0.35" rz="0.0" r="90" g="215" b="135" spec="0.45" emit="0.0" spin_y="1.0" />
+  <object name="tower_box" type="box" x="2.2" y="0.1" z="0.8" sx="1.3" sy="2.6" sz="1.3" rx="0.0" ry="-0.25" rz="0.0" r="230" g="140" b="65" spec="0.35" emit="0.0" spin_y="-0.6" />
+  <object name="beacon_pyramid" type="pyramid" x="0.1" y="-0.35" z="2.3" sx="1.5" sy="2.1" sz="1.5" rx="0.0" ry="0.2" rz="0.0" r="245" g="205" b="75" spec="0.65" emit="0.15" spin_y="1.5" />
+
+  <object name="custom_wedge" type="mesh" x="0.0" y="1.4" z="-2.6" sx="1.6" sy="1.4" sz="1.6" rx="0.0" ry="0.0" rz="0.0" r="140" g="180" b="255" spec="0.50" emit="0.05" spin_y="0.8">
+    <v x="-0.5" y="-0.5" z="-0.5" />
+    <v x="0.5" y="-0.5" z="-0.5" />
+    <v x="0.5" y="-0.5" z="0.5" />
+    <v x="-0.5" y="-0.5" z="0.5" />
+    <v x="0.0" y="0.65" z="0.0" />
+    <tri v0="0" v1="2" v2="1" />
+    <tri v0="0" v1="3" v2="2" />
+    <tri v0="0" v1="1" v2="4" />
+    <tri v0="1" v1="2" v2="4" />
+    <tri v0="2" v1="3" v2="4" />
+    <tri v0="3" v1="0" v2="4" />
+  </object>
+</scene>
