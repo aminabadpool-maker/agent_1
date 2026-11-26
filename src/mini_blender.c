@@ -6,10 +6,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #define W 640
 #define H 480
+#define PPM_MIN_BYTES (W * H * 3)
 #define MAX_V 131072
 #define MAX_T 262144
 #define MAX_OBJS 1024
@@ -17,8 +19,8 @@
 #define MAX_CUSTOM_V 8192
 #define MAX_CUSTOM_T 16384
 #define MAX_TAG_BUF 4096
-#define MAX_BATCH_FRAMES 2000
-#define MAX_CYCLE_FRAMES 100000
+#define MAX_BATCH_FRAMES 500000
+#define MAX_CYCLE_FRAMES 1000000
 
 typedef struct {
     float x, y, z;
@@ -164,7 +166,7 @@ static void sanitize_token(const char *src, char *dst, size_t dst_sz, const char
 static int validate_batch_limits(int *start_frame, int *count, int *total_cycle) {
     if (!start_frame || !count || !total_cycle) return 0;
     if (*start_frame < 0) *start_frame = 0;
-    if (*start_frame > 1000000) return 0;
+    if (*start_frame > 10000000) return 0;
     if (*count < 1 || *count > MAX_BATCH_FRAMES) return 0;
     if (*total_cycle < 1 || *total_cycle > MAX_CYCLE_FRAMES) return 0;
     return 1;
@@ -218,6 +220,45 @@ static void reset_mesh_accumulator(int *in_mesh_obj, int *cv_count, int *ct_coun
     if (in_mesh_obj) *in_mesh_obj = 0;
     if (cv_count) *cv_count = 0;
     if (ct_count) *ct_count = 0;
+}
+
+static int ensure_dir_recursive(const char *dir_path) {
+    if (!dir_path || dir_path[0] == '\0') return 0;
+    char tmp[512];
+    size_t len = strlen(dir_path);
+    if (len == 0 || len >= sizeof(tmp)) return 0;
+    memcpy(tmp, dir_path, len + 1);
+    while (len > 1 && tmp[len - 1] == '/') {
+        tmp[--len] = '\0';
+    }
+    for (size_t i = 1; i <= len; i++) {
+        if (tmp[i] == '/' || tmp[i] == '\0') {
+            char saved = tmp[i];
+            tmp[i] = '\0';
+            if (tmp[0] != '\0' && mkdir(tmp, 0775) != 0 && errno != EEXIST) {
+                return 0;
+            }
+            tmp[i] = saved;
+        }
+    }
+    return 1;
+}
+
+static int frame_already_complete(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return 0;
+    if (!S_ISREG(st.st_mode)) return 0;
+    return (st.st_size >= PPM_MIN_BYTES) ? 1 : 0;
+}
+
+static void write_checkpoint(const char *out_dir, int last_frame, int rendered_count, int skipped_count) {
+    char ck_path[560];
+    int n = snprintf(ck_path, sizeof(ck_path), "%s/checkpoint.state", out_dir);
+    if (n <= 0 || (size_t)n >= sizeof(ck_path)) return;
+    FILE *f = fopen(ck_path, "w");
+    if (!f) return;
+    fprintf(f, "last_frame=%d\nrendered=%d\nskipped=%d\n", last_frame, rendered_count, skipped_count);
+    fclose(f);
 }
 
 static Vec3 v3_sub(Vec3 a, Vec3 b) {
@@ -944,18 +985,31 @@ static void raster_tri(
 }
 
 static int save_ppm(const char *path) {
-    FILE *f = fopen(path, "wb");
+    char tmp_path[560];
+    int n = snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+    if (n <= 0 || (size_t)n >= sizeof(tmp_path)) {
+        return 0;
+    }
+
+    FILE *f = fopen(tmp_path, "wb");
     if (!f) {
-        fprintf(stderr, "Error: cannot create '%s': %s\n", path, strerror(errno));
+        fprintf(stderr, "Error: cannot create '%s': %s\n", tmp_path, strerror(errno));
         return 0;
     }
     if (fprintf(f, "P6\n%d %d\n255\n", W, H) < 0) {
         fclose(f);
+        remove(tmp_path);
         return 0;
     }
     size_t written = fwrite(fb, 1, sizeof(fb), f);
     if (fclose(f) != 0 || written != sizeof(fb)) {
-        fprintf(stderr, "Error: incomplete write to '%s'\n", path);
+        fprintf(stderr, "Error: incomplete write to '%s'\n", tmp_path);
+        remove(tmp_path);
+        return 0;
+    }
+    if (rename(tmp_path, path) != 0) {
+        fprintf(stderr, "Error: cannot finalize '%s': %s\n", path, strerror(errno));
+        remove(tmp_path);
         return 0;
     }
     return 1;
@@ -1053,7 +1107,7 @@ static int render_frame(
         if (t_end > s->tcount) t_end = s->tcount;
         for (int i = sp.t_start; i < t_end; i++) {
             Tri t = s->tris[i];
-            if (t.v0 < 0 || t.v0 >= s->vcount || t.v1 < 0 || t.v1 >= s->vcount || t.v2 < 0 || t.v2 >= s->vcount) {
+            if (!validate_tri_indices(t.v0, t.v1, t.v2, s->vcount)) {
                 continue;
             }
             Vec3 p0 = rot_xyz(v3_add(anim_v[t.v0], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
@@ -1071,7 +1125,7 @@ static int run_batch(
     int start_frame, int count, int total_cycle,
     const char *out_dir, const char *scene_path,
     Vec3 grab_offset, Vec3 rot_offset, float custom_fov, float scene_scale,
-    int quiet, int preview
+    int quiet, int preview, int resume_mode
 ) {
     if (!is_safe_out_dir(out_dir)) {
         fprintf(stderr, "Error: unsafe or invalid output directory '%s'\n", out_dir ? out_dir : "");
@@ -1097,14 +1151,17 @@ static int run_batch(
         g_scene.cam.fov = clamp_range(custom_fov, 50.0f, 1400.0f, g_scene.cam.fov);
     }
 
-    int ok_frames = 0;
+    if (!ensure_dir_recursive(out_dir)) {
+        fprintf(stderr, "Error: cannot create output directory '%s': %s\n", out_dir, strerror(errno));
+        return 1;
+    }
+
+    int rendered_frames = 0;
+    int skipped_frames = 0;
     double batch_start = now_sec();
 
     for (int i = 0; i < count; i++) {
         int f = start_frame + i;
-        double f_start = now_sec();
-        float phase = ((float)(f % total_cycle) / (float)total_cycle) * 6.2831853f;
-
         char path[512];
         int n = snprintf(path, sizeof(path), "%s/frame_%04d.ppm", out_dir, f);
         if (n <= 0 || (size_t)n >= sizeof(path)) {
@@ -1112,22 +1169,38 @@ static int run_batch(
             return 1;
         }
 
+        if (resume_mode && frame_already_complete(path)) {
+            skipped_frames++;
+            write_checkpoint(out_dir, f, rendered_frames, skipped_frames);
+            continue;
+        }
+
+        double f_start = now_sec();
+        float phase = ((float)(f % total_cycle) / (float)total_cycle) * 6.2831853f;
+
         if (!render_frame(&g_scene, phase, grab_offset, rot_offset, scene_scale, path)) {
             return 1;
         }
 
-        ok_frames++;
+        rendered_frames++;
+        write_checkpoint(out_dir, f, rendered_frames, skipped_frames);
+
         if (!quiet) {
             double dt = now_sec() - f_start;
-            printf("Frame %04d -> %s (%.3fs)\n", f, path, dt);
+            int done_total = rendered_frames + skipped_frames;
+            double elapsed = now_sec() - batch_start;
+            double avg = (rendered_frames > 0) ? (elapsed / (double)rendered_frames) : dt;
+            double eta = avg * (double)(count - done_total);
+            printf("Frame %04d -> %s (%.3fs | %d/%d | ETA %.1fs)\n",
+                   f, path, dt, done_total, count, eta);
             fflush(stdout);
         }
     }
 
     double total_dt = now_sec() - batch_start;
-    double avg_dt = (ok_frames > 0) ? (total_dt / (double)ok_frames) : 0.0;
-    printf("Batch finished: %d/%d frames in %.3fs (avg %.3fs/frame)\n",
-           ok_frames, count, total_dt, avg_dt);
+    double avg_dt = (rendered_frames > 0) ? (total_dt / (double)rendered_frames) : 0.0;
+    printf("Batch finished: rendered=%d skipped=%d total=%d in %.3fs (avg %.3fs/frame)\n",
+           rendered_frames, skipped_frames, count, total_dt, avg_dt);
 
 #ifndef MB_NO_PREVIEW
     if (preview) {
@@ -1163,7 +1236,7 @@ static int run_interactive_shell(
     int start_frame, int count, int total_cycle,
     const char *out_dir, const char *scene_path,
     Vec3 grab_offset, Vec3 rot_offset, float custom_fov, float scene_scale,
-    int preview
+    int preview, int resume_mode
 ) {
     char scene_buf[512] = "";
     if (scene_path && is_safe_xml_path(scene_path)) {
@@ -1212,14 +1285,14 @@ static int run_interactive_shell(
         } else if (strcmp(line, "render") == 0 || strcmp(line, "run") == 0) {
             run_batch(start_frame, count, total_cycle, out_dir,
                       scene_buf[0] ? scene_buf : NULL,
-                      grab_offset, rot_offset, custom_fov, scene_scale, 0, preview);
+                      grab_offset, rot_offset, custom_fov, scene_scale, 0, preview, resume_mode);
         } else if (strcmp(line, "status") == 0) {
-            printf("f=%d n=%d c=%d o=%s scene=%s g=(%.2f,%.2f,%.2f) r=(%.2f,%.2f,%.2f) z=%.1f m=%.2f preview=%s\n",
+            printf("f=%d n=%d c=%d o=%s scene=%s g=(%.2f,%.2f,%.2f) r=(%.2f,%.2f,%.2f) z=%.1f m=%.2f preview=%s resume=%d\n",
                    start_frame, count, total_cycle, out_dir,
                    scene_buf[0] ? scene_buf : "<default>",
                    grab_offset.x, grab_offset.y, grab_offset.z,
                    rot_offset.x, rot_offset.y, rot_offset.z,
-                   custom_fov, scene_scale, preview ? "ON" : "OFF");
+                   custom_fov, scene_scale, preview ? "ON" : "OFF", resume_mode);
         } else if (strncmp(line, "g ", 2) == 0) {
             if (!parse_vec3_csv(line + 2, &grab_offset)) {
                 printf("Invalid g format, use: g x,y,z\n");
@@ -1275,6 +1348,7 @@ static void print_help(void) {
         "  -r <x,y,z>      Rotate offset rx,ry,rz\n"
         "  -z <fov>        FOV / lens zoom\n"
         "  -m <scale>      Scene scale multiplier\n"
+        "  --resume        Skip valid existing frames & write checkpoint\n"
         "  -q              Quiet per-frame log\n"
     );
 }
@@ -1292,6 +1366,7 @@ int main(int argc, char **argv) {
     int quiet = 0;
     int interactive = 0;
     int preview = 0;
+    int resume_mode = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -1299,6 +1374,8 @@ int main(int argc, char **argv) {
             return 0;
         } else if (strcmp(argv[i], "-i") == 0) {
             interactive = 1;
+        } else if (strcmp(argv[i], "--resume") == 0) {
+            resume_mode = 1;
         } else if (strcmp(argv[i], "-p") == 0) {
 #ifndef MB_NO_PREVIEW
             preview = 1;
@@ -1355,12 +1432,12 @@ int main(int argc, char **argv) {
     if (interactive) {
         return run_interactive_shell(
             start_frame, count, total_cycle, out_dir, scene_path,
-            grab_offset, rot_offset, custom_fov, scene_scale, preview
+            grab_offset, rot_offset, custom_fov, scene_scale, preview, resume_mode
         );
     }
 
     return run_batch(
         start_frame, count, total_cycle, out_dir, scene_path,
-        grab_offset, rot_offset, custom_fov, scene_scale, quiet, preview
+        grab_offset, rot_offset, custom_fov, scene_scale, quiet, preview, resume_mode
     );
 }
