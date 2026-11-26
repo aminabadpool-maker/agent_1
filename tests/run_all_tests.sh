@@ -18,7 +18,7 @@ echo "$shell_out" | grep -q "z=450.0"
 echo "PASS: Interactive shell pipe test"
 
 echo "[3/8] Testing XML scene with shortcuts (-g, -r, -z, -m)..."
-./mini_blender -f 200 -n 6 -c 24 -o renders -s scenes/blender_like_scene.xml -g 0.0,0.2,0.0 -r 0.02,0.1,0.0 -z 440 -m 1.0 -q | tee logs/test_xml_v11.log
+./mini_blender -f 200 -n 6 -c 24 -o renders -s scenes/blender_like_scene.xml -g 0.0,0.2,0.0 -r 0.02,0.1,0.0 -z 440 -m 1.0 -q | tee logs/test_xml_v12.log
 echo "PASS: XML + shortcut render"
 
 echo "[4/8] Verifying PPM binary integrity (header + exact byte size)..."
@@ -64,12 +64,16 @@ cat <<'BADXML' > scenes/malformed_blender_import.xml
   <object type="mesh" x="-2.0" y="0.0" z="0.0" />
 </scene>
 BADXML
-./mini_blender_pi -f 250 -n 4 -c 24 -o renders -s scenes/malformed_blender_import.xml -q | tee logs/test_malformed_v11.log
+./mini_blender_pi -f 250 -n 4 -c 24 -o renders -s scenes/malformed_blender_import.xml -q | tee logs/test_malformed_v12.log
 echo "PASS: Malformed / Blender-quirk XML handled safely"
 
 echo "[6/8] Testing adversarial inputs (path traversal, frame cap, bad vectors)..."
 if ./mini_blender_pi -o ../evil_out -n 1 -q >/dev/null 2>&1; then
     echo "FAIL: traversal path should be rejected" >&2
+    exit 1
+fi
+if ./mini_blender_pi -o "bad\\slash" -n 1 -q >/dev/null 2>&1; then
+    echo "FAIL: backslash path should be rejected" >&2
     exit 1
 fi
 if ./mini_blender_pi -n 999999 -q >/dev/null 2>&1; then
@@ -87,7 +91,7 @@ scene_target="scenes/mega_stress_scene.xml"
 if [ ! -f "$scene_target" ]; then
     scene_target="scenes/heavy_stress_scene.xml"
 fi
-./mini_blender_pi -f 400 -n 120 -c 90 -o renders -s "$scene_target" -g 0.0,0.2,0.0 -r 0.03,0.15,0.0 -z 450 -m 1.0 -q | tee logs/test_pi_assault_v11.log
+./mini_blender_pi -f 500 -n 150 -c 90 -o renders -s "$scene_target" -g 0.0,0.2,0.0 -r 0.03,0.15,0.0 -z 450 -m 1.0 -q | tee logs/test_pi_assault_v12.log
 echo "PASS: Heavy Pi assault batch passed"
 
 if [ -x "./mb_server_run.sh" ]; then

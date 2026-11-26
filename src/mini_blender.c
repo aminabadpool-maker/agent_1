@@ -97,6 +97,10 @@ static float clamp_range(float v, float lo, float hi, float def_val) {
     return v;
 }
 
+static float clamp_scene_scale(float s) {
+    return clamp_range(s, 0.1f, 10.0f, 1.0f);
+}
+
 static int has_control_chars(const char *s) {
     if (!s) return 1;
     for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
@@ -105,11 +109,19 @@ static int has_control_chars(const char *s) {
     return 0;
 }
 
+static int has_path_traversal(const char *path) {
+    if (!path) return 1;
+    if (strstr(path, "..") != NULL) return 1;
+    if (strchr(path, '\\') != NULL) return 1;
+    if (strstr(path, "//") != NULL) return 1;
+    return 0;
+}
+
 static int is_safe_out_dir(const char *path) {
     if (!path || path[0] == '\0') return 0;
     if (strlen(path) > 256) return 0;
     if (has_control_chars(path)) return 0;
-    if (strstr(path, "..") != NULL) return 0;
+    if (has_path_traversal(path)) return 0;
     return 1;
 }
 
@@ -117,7 +129,7 @@ static int is_safe_xml_path(const char *path) {
     if (!path || path[0] == '\0') return 0;
     if (strlen(path) > 400) return 0;
     if (has_control_chars(path)) return 0;
-    if (strstr(path, "..") != NULL) return 0;
+    if (has_path_traversal(path)) return 0;
     return 1;
 }
 
@@ -131,6 +143,22 @@ static void sanitize_shell_line(char *line) {
         line[w_idx++] = (char)c;
     }
     line[w_idx] = '\0';
+}
+
+static void sanitize_token(const char *src, char *dst, size_t dst_sz, const char *fallback) {
+    if (!dst || dst_sz == 0) return;
+    snprintf(dst, dst_sz, "%s", fallback ? fallback : "box");
+    if (!src || src[0] == '\0') return;
+    size_t j = 0;
+    for (size_t i = 0; src[i] != '\0' && j + 1 < dst_sz; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (isalnum(c) || c == '_' || c == '-') {
+            dst[j++] = (char)c;
+        }
+    }
+    if (j > 0) {
+        dst[j] = '\0';
+    }
 }
 
 static int validate_batch_limits(int *start_frame, int *count, int *total_cycle) {
@@ -177,6 +205,19 @@ static int parse_vec3_csv(const char *s, Vec3 *out) {
     out->y = b;
     out->z = c;
     return 1;
+}
+
+static int validate_tri_indices(int a, int b, int c, int vcount) {
+    if (vcount <= 0) return 0;
+    if (a < 0 || a >= vcount || b < 0 || b >= vcount || c < 0 || c >= vcount) return 0;
+    if (a == b || b == c || a == c) return 0;
+    return 1;
+}
+
+static void reset_mesh_accumulator(int *in_mesh_obj, int *cv_count, int *ct_count) {
+    if (in_mesh_obj) *in_mesh_obj = 0;
+    if (cv_count) *cv_count = 0;
+    if (ct_count) *ct_count = 0;
 }
 
 static Vec3 v3_sub(Vec3 a, Vec3 b) {
@@ -271,10 +312,11 @@ static void scene_init_defaults(Scene *s) {
     s->light_count = 2;
 }
 
-static int can_add_geometry(const Scene *s, int add_v, int add_t) {
+static int can_append_scene_capacity(const Scene *s, int add_v, int add_t) {
     if (!s || add_v <= 0 || add_t <= 0) return 0;
     if (s->obj_count >= MAX_OBJS) return 0;
-    if (s->vcount + add_v > MAX_V || s->tcount + add_t > MAX_T) return 0;
+    if (s->vcount < 0 || s->tcount < 0) return 0;
+    if (add_v > MAX_V - s->vcount || add_t > MAX_T - s->tcount) return 0;
     return 1;
 }
 
@@ -283,7 +325,7 @@ static int scene_add_box(
     unsigned char r, unsigned char g, unsigned char b,
     float spec, float shine, float emit, float spin_y, int visible
 ) {
-    if (!can_add_geometry(s, 8, 12)) return 0;
+    if (!can_append_scene_capacity(s, 8, 12)) return 0;
     int v_start = s->vcount;
     int t_start = s->tcount;
 
@@ -325,7 +367,7 @@ static int scene_add_plane(
     unsigned char r, unsigned char g, unsigned char b,
     float spec, float shine, float emit, float spin_y, int visible
 ) {
-    if (!can_add_geometry(s, 4, 2)) return 0;
+    if (!can_append_scene_capacity(s, 4, 2)) return 0;
     int v_start = s->vcount;
     int t_start = s->tcount;
 
@@ -358,7 +400,7 @@ static int scene_add_pyramid(
     unsigned char r, unsigned char g, unsigned char b,
     float spec, float shine, float emit, float spin_y, int visible
 ) {
-    if (!can_add_geometry(s, 5, 6)) return 0;
+    if (!can_append_scene_capacity(s, 5, 6)) return 0;
     int v_start = s->vcount;
     int t_start = s->tcount;
 
@@ -401,7 +443,7 @@ static int scene_add_custom_mesh(
     float spec, float shine, float emit, float spin_y, int visible
 ) {
     if (!cv || !ct || cv_count <= 0 || ct_count <= 0) return 0;
-    if (!can_add_geometry(s, cv_count, ct_count)) return 0;
+    if (!can_append_scene_capacity(s, cv_count, ct_count)) return 0;
 
     int v_start = s->vcount;
     int t_start = s->tcount;
@@ -416,10 +458,7 @@ static int scene_add_custom_mesh(
         int a = ct[i * 3 + 0];
         int b_idx = ct[i * 3 + 1];
         int c_idx = ct[i * 3 + 2];
-        if (a < 0 || a >= cv_count || b_idx < 0 || b_idx >= cv_count || c_idx < 0 || c_idx >= cv_count) {
-            continue;
-        }
-        if (a == b_idx || b_idx == c_idx || a == c_idx) {
+        if (!validate_tri_indices(a, b_idx, c_idx, cv_count)) {
             continue;
         }
         Tri t = { v_start + a, v_start + b_idx, v_start + c_idx, r, g, b, spec, shine, emit };
@@ -539,13 +578,12 @@ static unsigned char attr_color_u8(const char *tag, const char *key, unsigned ch
 }
 
 static void attr_str(const char *tag, const char *key, char *dst, size_t dst_sz, const char *def_val) {
-    snprintf(dst, dst_sz, "%s", def_val);
     char buf[128];
-    if (!find_attr_value(tag, key, buf, sizeof(buf))) return;
-    size_t len = strlen(buf);
-    if (len >= dst_sz) len = dst_sz - 1;
-    memcpy(dst, buf, len);
-    dst[len] = '\0';
+    if (!find_attr_value(tag, key, buf, sizeof(buf))) {
+        snprintf(dst, dst_sz, "%s", def_val);
+        return;
+    }
+    sanitize_token(buf, dst, dst_sz, def_val);
 }
 
 static void apply_optional_vec3_attr(const char *tag, const char *key, Vec3 *target) {
@@ -654,7 +692,7 @@ static void process_xml_tag(
             *cv_count = 0;
             *ct_count = 0;
         } else {
-            *in_mesh_obj = 0;
+            reset_mesh_accumulator(in_mesh_obj, cv_count, ct_count);
             if (strcmp(obj_type, "plane") == 0) {
                 scene_add_plane(s, *obj_c, obj_s->x, obj_s->z, *obj_r, obj_col[0], obj_col[1], obj_col[2], *obj_spec, *obj_shine, *obj_emit, *obj_spin, *obj_visible);
             } else if (strcmp(obj_type, "pyramid") == 0) {
@@ -684,9 +722,7 @@ static void process_xml_tag(
             s, *obj_c, *obj_s, *obj_r, cv, *cv_count, ct, *ct_count,
             obj_col[0], obj_col[1], obj_col[2], *obj_spec, *obj_shine, *obj_emit, *obj_spin, *obj_visible
         );
-        *in_mesh_obj = 0;
-        *cv_count = 0;
-        *ct_count = 0;
+        reset_mesh_accumulator(in_mesh_obj, cv_count, ct_count);
     }
 }
 
@@ -1046,7 +1082,7 @@ static int run_batch(
                 start_frame, count, total_cycle);
         return 1;
     }
-    scene_scale = clamp_range(scene_scale, 0.1f, 10.0f, 1.0f);
+    scene_scale = clamp_scene_scale(scene_scale);
 
     if (scene_path && load_scene_xml(&g_scene, scene_path)) {
         printf("Loaded XML scene '%s': %d objs, %d lights, %d verts, %d tris\n",
