@@ -12,12 +12,16 @@ RAM ?= 1001
 CORES ?= 4
 BUDGET ?= 500
 MAX_THREADS ?= 4
+MAX_BATCH ?= 128
+MIN_RAM_MB ?= 512
+MIN_DISK_MB ?= 1024
+MAX_TEMP_C ?= 75.0
 WATCH_DIR ?= renders/pi_run
 TELEMETRY_LOG ?= renders/pi_run/telemetry.jsonl
 
-TARGETS := tools/pi_budget tools/pi_lib_demo tools/pi_telemetry
+TARGETS := tools/pi_budget tools/pi_lib_demo tools/pi_telemetry tools/pi_guard tools/pi_stress
 
-.PHONY: all check health plan telemetry log-summary clean
+.PHONY: all check health plan telemetry log-summary guard stress clean
 
 all: $(TARGETS)
 
@@ -29,6 +33,12 @@ tools/pi_lib_demo: tools/pi_lib_demo.c $(PI_LIB_SRC) $(PI_LIB_HDR)
 
 tools/pi_telemetry: tools/pi_telemetry.c $(PI_LIB_SRC) $(PI_LIB_HDR)
 	$(CC) $(CFLAGS) tools/pi_telemetry.c $(PI_LIB_SRC) -o $@
+
+tools/pi_guard: tools/pi_guard.c $(PI_LIB_SRC) $(PI_LIB_HDR)
+	$(CC) $(CFLAGS) tools/pi_guard.c $(PI_LIB_SRC) -o $@
+
+tools/pi_stress: tools/pi_stress.c $(PI_LIB_SRC) $(PI_LIB_HDR)
+	$(CC) $(CFLAGS) tools/pi_stress.c $(PI_LIB_SRC) -lm -o $@
 
 check: all tools/run_budget_matrix.sh
 	./tools/run_budget_matrix.sh
@@ -105,6 +115,12 @@ log-summary:
 		printf "CPU Temp C   : min=%.1f avg=%.1f max=%.1f\n", t_min, t_sum/n, t_max; \
 		printf "Batch Frames : min=%d avg=%.1f max=%d\n", b_min, b_sum/n, b_max; \
 	}' "$(TELEMETRY_LOG)"
+
+guard: tools/pi_guard
+	./tools/pi_guard "$(W)" "$(H)" "$(FRAMES)" "$(BUDGET)" "$(MAX_THREADS)" "$(MAX_BATCH)" "$(MIN_RAM_MB)" "$(MIN_DISK_MB)" "$(MAX_TEMP_C)" "$(WATCH_DIR)"
+
+stress: tools/pi_stress
+	./tools/pi_stress
 
 clean:
 	rm -f $(TARGETS)
