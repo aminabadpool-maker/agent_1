@@ -8,6 +8,7 @@ out_file=""
 fps="24"
 start_num=""
 crf="20"
+clean_ppm="0"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -16,6 +17,7 @@ while [ "$#" -gt 0 ]; do
         -f|--fps) fps="$2"; shift 2 ;;
         -s|--start) start_num="$2"; shift 2 ;;
         --crf) crf="$2"; shift 2 ;;
+        --clean-ppm) clean_ppm="1"; shift 1 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -66,3 +68,7 @@ ffmpeg -y \
     "$out_file"
 
 echo "Done -> $out_file"
+if [ "$clean_ppm" = "1" ] && [ -s "$out_file" ]; then
+    rm -f "${in_dir}"/frame_*.ppm
+    echo "Cleaned intermediate PPM frames in $in_dir"
+fi

@@ -139,6 +139,17 @@ static void mb_cam_apply_target_and_roll(Camera *cam) {
     }
 }
 
+static void mb_scene_sanitize_transforms(Scene *s) {
+    if (!s) return;
+    Vec3 zero = {0.0f, 0.0f, 0.0f};
+    for (int i = 0; i < s->light_count; i++) {
+        Light *l = &s->lights[i];
+        l->pos = mb_vec3_sane(l->pos, zero);
+        l->intensity = mb_finf(l->intensity, 1.0f);
+        if (l->intensity < 0.0f) l->intensity = 0.0f;
+    }
+}
+
 static float clamp_scene_scale(float s) {
     return clamp_range(s, 0.1f, 10.0f, 1.0f);
 }
@@ -727,6 +738,7 @@ static void process_xml_tag(
         }
         s->cam.roll = clamp_range(attr_float(tag, "roll", s->cam.roll), -50.0f, 50.0f, s->cam.roll);
         mb_cam_apply_target_and_roll(&s->cam);
+        mb_scene_sanitize_transforms(s);
         s->cam.yaw = clamp_range(attr_float(tag, "yaw", s->cam.yaw), -50.0f, 50.0f, s->cam.yaw);
         s->cam.pitch = clamp_range(attr_float(tag, "pitch", s->cam.pitch), -50.0f, 50.0f, s->cam.pitch);
         s->cam.fov = clamp_range(attr_float(tag, "fov", s->cam.fov), 50.0f, 1400.0f, 420.0f);
