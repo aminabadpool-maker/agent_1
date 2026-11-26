@@ -9,12 +9,12 @@
 
 #define W 640
 #define H 480
-#define MAX_V 65536
-#define MAX_T 131072
-#define MAX_OBJS 512
+#define MAX_V 131072
+#define MAX_T 262144
+#define MAX_OBJS 1024
 #define MAX_LIGHTS 8
-#define MAX_CUSTOM_V 4096
-#define MAX_CUSTOM_T 8192
+#define MAX_CUSTOM_V 8192
+#define MAX_CUSTOM_T 16384
 
 typedef struct {
     float x, y, z;
@@ -24,6 +24,7 @@ typedef struct {
     int v0, v1, v2;
     unsigned char r, g, b;
     float spec;
+    float shine;
     float emit;
 } Tri;
 
@@ -105,6 +106,11 @@ static Vec3 v3_add(Vec3 a, Vec3 b) {
     return r;
 }
 
+static Vec3 v3_scale(Vec3 a, float s) {
+    Vec3 r = { a.x * s, a.y * s, a.z * s };
+    return r;
+}
+
 static Vec3 v3_cross(Vec3 a, Vec3 b) {
     Vec3 r = {
         a.y * b.z - a.z * b.y,
@@ -151,8 +157,8 @@ static Vec3 rot_xyz(Vec3 p, float rx, float ry, float rz) {
 static void scene_init_defaults(Scene *s) {
     memset(s, 0, sizeof(*s));
     s->cam.pos.x = 0.0f;
-    s->cam.pos.y = 1.8f;
-    s->cam.pos.z = 12.2f;
+    s->cam.pos.y = 2.0f;
+    s->cam.pos.z = 12.5f;
     s->cam.yaw = 0.0f;
     s->cam.pitch = -0.16f;
     s->cam.fov = 420.0f;
@@ -185,7 +191,8 @@ static int can_add_geometry(const Scene *s, int add_v, int add_t) {
 
 static int scene_add_box(
     Scene *s, Vec3 center, Vec3 size, Vec3 rot_angles,
-    unsigned char r, unsigned char g, unsigned char b, float spec, float emit, float spin_y
+    unsigned char r, unsigned char g, unsigned char b,
+    float spec, float shine, float emit, float spin_y
 ) {
     if (!can_add_geometry(s, 8, 12)) return 0;
     int v_start = s->vcount;
@@ -215,7 +222,7 @@ static int scene_add_box(
     };
 
     for (int i = 0; i < 12; i++) {
-        Tri t = { v_start + idx[i][0], v_start + idx[i][1], v_start + idx[i][2], r, g, b, spec, emit };
+        Tri t = { v_start + idx[i][0], v_start + idx[i][1], v_start + idx[i][2], r, g, b, spec, shine, emit };
         s->tris[s->tcount++] = t;
     }
 
@@ -226,7 +233,8 @@ static int scene_add_box(
 
 static int scene_add_plane(
     Scene *s, Vec3 center, float sx, float sz, Vec3 rot_angles,
-    unsigned char r, unsigned char g, unsigned char b, float spec, float emit, float spin_y
+    unsigned char r, unsigned char g, unsigned char b,
+    float spec, float shine, float emit, float spin_y
 ) {
     if (!can_add_geometry(s, 4, 2)) return 0;
     int v_start = s->vcount;
@@ -246,8 +254,8 @@ static int scene_add_plane(
         s->verts[s->vcount++] = v3_add(center, rot);
     }
 
-    Tri t0 = { v_start + 0, v_start + 2, v_start + 1, r, g, b, spec, emit };
-    Tri t1 = { v_start + 0, v_start + 3, v_start + 2, r, g, b, spec, emit };
+    Tri t0 = { v_start + 0, v_start + 2, v_start + 1, r, g, b, spec, shine, emit };
+    Tri t1 = { v_start + 0, v_start + 3, v_start + 2, r, g, b, spec, shine, emit };
     s->tris[s->tcount++] = t0;
     s->tris[s->tcount++] = t1;
 
@@ -258,7 +266,8 @@ static int scene_add_plane(
 
 static int scene_add_pyramid(
     Scene *s, Vec3 center, Vec3 size, Vec3 rot_angles,
-    unsigned char r, unsigned char g, unsigned char b, float spec, float emit, float spin_y
+    unsigned char r, unsigned char g, unsigned char b,
+    float spec, float shine, float emit, float spin_y
 ) {
     if (!can_add_geometry(s, 5, 6)) return 0;
     int v_start = s->vcount;
@@ -287,7 +296,7 @@ static int scene_add_pyramid(
     };
 
     for (int i = 0; i < 6; i++) {
-        Tri t = { v_start + idx[i][0], v_start + idx[i][1], v_start + idx[i][2], r, g, b, spec, emit };
+        Tri t = { v_start + idx[i][0], v_start + idx[i][1], v_start + idx[i][2], r, g, b, spec, shine, emit };
         s->tris[s->tcount++] = t;
     }
 
@@ -299,7 +308,8 @@ static int scene_add_pyramid(
 static int scene_add_custom_mesh(
     Scene *s, Vec3 center, Vec3 scale, Vec3 rot_angles,
     const Vec3 *cv, int cv_count, const int *ct, int ct_count,
-    unsigned char r, unsigned char g, unsigned char b, float spec, float emit, float spin_y
+    unsigned char r, unsigned char g, unsigned char b,
+    float spec, float shine, float emit, float spin_y
 ) {
     if (cv_count <= 0 || ct_count <= 0) return 0;
     if (!can_add_geometry(s, cv_count, ct_count)) return 0;
@@ -320,7 +330,7 @@ static int scene_add_custom_mesh(
         if (a < 0 || a >= cv_count || b_idx < 0 || b_idx >= cv_count || c_idx < 0 || c_idx >= cv_count) {
             continue;
         }
-        Tri t = { v_start + a, v_start + b_idx, v_start + c_idx, r, g, b, spec, emit };
+        Tri t = { v_start + a, v_start + b_idx, v_start + c_idx, r, g, b, spec, shine, emit };
         s->tris[s->tcount++] = t;
     }
 
@@ -335,29 +345,50 @@ static int scene_add_custom_mesh(
     return 1;
 }
 
+static void scene_add_grid_boxes(
+    Scene *s, Vec3 origin, Vec3 box_sz, int rows, int cols, float step,
+    unsigned char r, unsigned char g, unsigned char b,
+    float spec, float shine, float emit, float spin_y
+) {
+    if (rows < 1) rows = 1;
+    if (cols < 1) cols = 1;
+    if (step < 0.05f) step = 0.5f;
+
+    float half_x = ((float)(cols - 1) * step) * 0.5f;
+    float half_z = ((float)(rows - 1) * step) * 0.5f;
+
+    for (int rz = 0; rz < rows; rz++) {
+        for (int cx = 0; cx < cols; cx++) {
+            float wave = 0.45f + 0.55f * fabsf(sinf((float)cx * 0.65f + (float)rz * 0.55f));
+            float h = box_sz.y * wave;
+            Vec3 c = {
+                origin.x - half_x + (float)cx * step,
+                origin.y + h * 0.5f,
+                origin.z - half_z + (float)rz * step
+            };
+            Vec3 sz = { box_sz.x, h, box_sz.z };
+            Vec3 rot = { 0.0f, 0.12f * (float)((cx + rz) % 6), 0.0f };
+            unsigned char cr = clamp_u8((float)r + (float)((cx * 13 + rz * 7) % 35) - 15.0f);
+            unsigned char cg = clamp_u8((float)g + (float)((cx * 5 + rz * 19) % 35) - 15.0f);
+            unsigned char cb = clamp_u8((float)b + (float)((cx * 11 + rz * 17) % 35) - 15.0f);
+            if (!scene_add_box(s, c, sz, rot, cr, cg, cb, spec, shine, emit, spin_y)) {
+                return;
+            }
+        }
+    }
+}
+
 static void build_default_stress_scene(Scene *s) {
     scene_init_defaults(s);
     s->cam.orbit_cam = 1;
 
     Vec3 zero_r = { 0.0f, 0.0f, 0.0f };
     Vec3 ground_c = { 0.0f, -1.3f, 0.0f };
-    scene_add_plane(s, ground_c, 18.0f, 18.0f, zero_r, 68, 78, 92, 0.10f, 0.0f, 0.0f);
+    scene_add_plane(s, ground_c, 20.0f, 20.0f, zero_r, 68, 78, 92, 0.10f, 20.0f, 0.0f, 0.0f);
 
-    const int grid = 14;
-    for (int gx = 0; gx < grid; gx++) {
-        for (int gz = 0; gz < grid; gz++) {
-            float fx = -6.5f + (float)gx * 1.0f;
-            float fz = -6.5f + (float)gz * 1.0f;
-            float h = 0.45f + 0.40f * fabsf(sinf((float)gx * 0.7f + (float)gz * 0.5f));
-            Vec3 c = { fx, -1.3f + h * 0.5f, fz };
-            Vec3 sz = { 0.56f, h, 0.56f };
-            Vec3 rot = { 0.0f, 0.15f * (float)((gx + gz) % 6), 0.0f };
-            unsigned char r = (unsigned char)(70 + ((gx * 17 + gz * 29) % 150));
-            unsigned char g = (unsigned char)(85 + ((gx * 31 + gz * 13) % 140));
-            unsigned char b = (unsigned char)(100 + ((gx * 11 + gz * 23) % 130));
-            scene_add_box(s, c, sz, rot, r, g, b, 0.30f, 0.0f, 0.0f);
-        }
-    }
+    Vec3 grid_o = { 0.0f, -1.3f, 0.0f };
+    Vec3 box_sz = { 0.56f, 0.85f, 0.56f };
+    scene_add_grid_boxes(s, grid_o, box_sz, 14, 14, 1.0f, 110, 145, 185, 0.32f, 24.0f, 0.0f, 0.0f);
 }
 
 static float extract_attr_float(const char *line, const char *key, float def_val) {
@@ -421,8 +452,12 @@ static int load_scene_xml(Scene *s, const char *path) {
     Vec3 obj_r = { 0.0f, 0.0f, 0.0f };
     unsigned char obj_col[3] = { 160, 160, 160 };
     float obj_spec = 0.25f;
+    float obj_shine = 24.0f;
     float obj_emit = 0.0f;
     float obj_spin = 0.0f;
+    int obj_rows = 10;
+    int obj_cols = 10;
+    float obj_step = 1.0f;
 
     Vec3 *cv = malloc(sizeof(Vec3) * MAX_CUSTOM_V);
     int *ct = malloc(sizeof(int) * MAX_CUSTOM_T * 3);
@@ -443,7 +478,7 @@ static int load_scene_xml(Scene *s, const char *path) {
             s->cam.pos.z = extract_attr_float(line, "z", s->cam.pos.z);
             s->cam.yaw = extract_attr_float(line, "yaw", s->cam.yaw);
             s->cam.pitch = extract_attr_float(line, "pitch", s->cam.pitch);
-            s->cam.fov = clamp_range(extract_attr_float(line, "fov", s->cam.fov), 50.0f, 1200.0f, 420.0f);
+            s->cam.fov = clamp_range(extract_attr_float(line, "fov", s->cam.fov), 50.0f, 1400.0f, 420.0f);
             s->cam.orbit_cam = extract_attr_int(line, "orbit_cam", s->cam.orbit_cam);
         } else if (strstr(line, "<light") != NULL) {
             if (!parsed_custom_light) {
@@ -480,8 +515,12 @@ static int load_scene_xml(Scene *s, const char *path) {
             obj_col[1] = clamp_u8((float)extract_attr_int(line, "g", 160));
             obj_col[2] = clamp_u8((float)extract_attr_int(line, "b", 160));
             obj_spec = clamp_range(extract_attr_float(line, "spec", 0.25f), 0.0f, 1.0f, 0.25f);
+            obj_shine = clamp_range(extract_attr_float(line, "shine", 24.0f), 2.0f, 256.0f, 24.0f);
             obj_emit = clamp_range(extract_attr_float(line, "emit", 0.0f), 0.0f, 1.0f, 0.0f);
             obj_spin = clamp_range(extract_attr_float(line, "spin_y", 0.0f), -10.0f, 10.0f, 0.0f);
+            obj_rows = (int)clamp_range((float)extract_attr_int(line, "rows", 10), 1.0f, 40.0f, 10.0f);
+            obj_cols = (int)clamp_range((float)extract_attr_int(line, "cols", 10), 1.0f, 40.0f, 10.0f);
+            obj_step = clamp_range(extract_attr_float(line, "step", 1.0f), 0.1f, 20.0f, 1.0f);
 
             if (strcmp(obj_type, "mesh") == 0 && strstr(line, "/>") == NULL) {
                 in_mesh_obj = 1;
@@ -490,11 +529,13 @@ static int load_scene_xml(Scene *s, const char *path) {
             } else {
                 in_mesh_obj = 0;
                 if (strcmp(obj_type, "plane") == 0) {
-                    scene_add_plane(s, obj_c, obj_s.x, obj_s.z, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_emit, obj_spin);
+                    scene_add_plane(s, obj_c, obj_s.x, obj_s.z, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin);
                 } else if (strcmp(obj_type, "pyramid") == 0) {
-                    scene_add_pyramid(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_emit, obj_spin);
+                    scene_add_pyramid(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin);
+                } else if (strcmp(obj_type, "grid") == 0) {
+                    scene_add_grid_boxes(s, obj_c, obj_s, obj_rows, obj_cols, obj_step, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin);
                 } else {
-                    scene_add_box(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_emit, obj_spin);
+                    scene_add_box(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin);
                 }
             }
         } else if (in_mesh_obj && strstr(line, "<v") != NULL) {
@@ -514,7 +555,7 @@ static int load_scene_xml(Scene *s, const char *path) {
         } else if (in_mesh_obj && strstr(line, "</object>") != NULL) {
             scene_add_custom_mesh(
                 s, obj_c, obj_s, obj_r, cv, cv_count, ct, ct_count,
-                obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_emit, obj_spin
+                obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin
             );
             in_mesh_obj = 0;
             cv_count = 0;
@@ -582,7 +623,7 @@ static void raster_tri(
             Vec3 half_v = v3_norm(v3_add(ldir, view_dir));
             float nh = v3_dot(n, half_v);
             if (nh > 0.0f) {
-                float p = powf(nh, 24.0f);
+                float p = powf(nh, tri->shine);
                 spec_term = p * tri->spec * lights[i].intensity;
             }
         }
@@ -672,7 +713,11 @@ static int save_ppm(const char *path) {
     return 1;
 }
 
-static int render_frame(const Scene *s, float phase, Vec3 grab_offset, Vec3 rot_offset, const char *out_path) {
+static int render_frame(
+    const Scene *s, float phase,
+    Vec3 grab_offset, Vec3 rot_offset, float scene_scale,
+    const char *out_path
+) {
     clear_buffers(18, 24, 34);
 
     Camera frame_cam = s->cam;
@@ -687,7 +732,7 @@ static int render_frame(const Scene *s, float phase, Vec3 grab_offset, Vec3 rot_
     if (!anim_v) return 0;
 
     for (int i = 0; i < s->vcount; i++) {
-        Vec3 v = s->verts[i];
+        Vec3 v = v3_scale(s->verts[i], scene_scale);
         if (fabsf(rot_offset.z) > 1e-6f) {
             v = rot_xyz(v, 0.0f, 0.0f, rot_offset.z);
         }
@@ -697,11 +742,12 @@ static int render_frame(const Scene *s, float phase, Vec3 grab_offset, Vec3 rot_
     for (int oi = 0; oi < s->obj_count; oi++) {
         ObjectSpan sp = s->objs[oi];
         if (fabsf(sp.spin_y) > 1e-5f) {
+            Vec3 scaled_c = v3_scale(sp.center, scene_scale);
             float angle = phase * sp.spin_y;
             for (int vi = sp.v_start; vi < sp.v_start + sp.v_count && vi < s->vcount; vi++) {
-                Vec3 rel = v3_sub(anim_v[vi], sp.center);
+                Vec3 rel = v3_sub(anim_v[vi], scaled_c);
                 Vec3 rot = rot_xyz(rel, 0.0f, angle, 0.0f);
-                anim_v[vi] = v3_add(sp.center, rot);
+                anim_v[vi] = v3_add(scaled_c, rot);
             }
         }
     }
@@ -731,9 +777,11 @@ static void print_help(void) {
         "  -c <num>        Cycle frames (default: 32)\n"
         "  -o <dir>        Output directory (default: renders)\n"
         "  -s <file.xml>   Scene XML path\n"
-        "  -g <x,y,z>      Grab/move offset (Blender G feel)\n"
+        "  -g <x,y,z>      Grab/move camera offset (Blender G feel)\n"
         "  -r <x,y,z>      Rotate offset rx,ry,rz (Blender R feel)\n"
-        "  -z <fov>        FOV / lens zoom (Blender S/lens feel)\n"
+        "  -z <fov>        FOV / lens zoom\n"
+        "  -m <scale>      Scene scale multiplier (Blender S feel)\n"
+        "  -q              Quiet per-frame log\n"
     );
 }
 
@@ -746,6 +794,8 @@ int main(int argc, char **argv) {
     Vec3 grab_offset = { 0.0f, 0.0f, 0.0f };
     Vec3 rot_offset = { 0.0f, 0.0f, 0.0f };
     float custom_fov = -1.0f;
+    float scene_scale = 1.0f;
+    int quiet = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -773,6 +823,10 @@ int main(int argc, char **argv) {
             }
         } else if (strcmp(argv[i], "-z") == 0 && i + 1 < argc) {
             custom_fov = strtof(argv[++i], NULL);
+        } else if (strcmp(argv[i], "-m") == 0 && i + 1 < argc) {
+            scene_scale = strtof(argv[++i], NULL);
+        } else if (strcmp(argv[i], "-q") == 0) {
+            quiet = 1;
         } else {
             fprintf(stderr, "Error: unknown or incomplete option '%s' (use -h)\n", argv[i]);
             return 1;
@@ -782,8 +836,9 @@ int main(int argc, char **argv) {
     if (start_frame < 0) start_frame = 0;
     if (count < 1) count = 1;
     if (total_cycle < 1) total_cycle = 32;
+    scene_scale = clamp_range(scene_scale, 0.1f, 10.0f, 1.0f);
 
-    Scene s;
+    static Scene s;
     if (scene_path && load_scene_xml(&s, scene_path)) {
         printf("Loaded XML scene '%s': %d objs, %d lights, %d verts, %d tris\n",
                scene_path, s.obj_count, s.light_count, s.vcount, s.tcount);
@@ -794,7 +849,7 @@ int main(int argc, char **argv) {
     }
 
     if (custom_fov > 0.0f) {
-        s.cam.fov = clamp_range(custom_fov, 50.0f, 1200.0f, s.cam.fov);
+        s.cam.fov = clamp_range(custom_fov, 50.0f, 1400.0f, s.cam.fov);
     }
 
     int ok_frames = 0;
@@ -812,14 +867,16 @@ int main(int argc, char **argv) {
             return 1;
         }
 
-        if (!render_frame(&s, phase, grab_offset, rot_offset, path)) {
+        if (!render_frame(&s, phase, grab_offset, rot_offset, scene_scale, path)) {
             return 1;
         }
 
         ok_frames++;
-        double dt = now_sec() - f_start;
-        printf("Frame %04d -> %s (%.3fs)\n", f, path, dt);
-        fflush(stdout);
+        if (!quiet) {
+            double dt = now_sec() - f_start;
+            printf("Frame %04d -> %s (%.3fs)\n", f, path, dt);
+            fflush(stdout);
+        }
     }
 
     double total_dt = now_sec() - batch_start;
