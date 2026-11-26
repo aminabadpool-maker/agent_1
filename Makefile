@@ -5,9 +5,16 @@ PI_LIB_SRC := tools/pi_lib.c
 PI_LIB_HDR := tools/pi_lib.h
 HEALTH_SCRIPT := tools/pi_health_check.sh
 
+W ?= 1280
+H ?= 720
+FRAMES ?= 300
+RAM ?= 1001
+CORES ?= 4
+BUDGET ?= 500
+
 TARGETS := tools/pi_budget tools/pi_lib_demo
 
-.PHONY: all check health clean
+.PHONY: all check health plan clean
 
 all: $(TARGETS)
 
@@ -27,6 +34,9 @@ health:
 	fi
 	@chmod +x "$(HEALTH_SCRIPT)"
 	./$(HEALTH_SCRIPT)
+
+plan: health tools/pi_budget
+	./tools/pi_budget "$(W)" "$(H)" "$(FRAMES)" "$(RAM)" "$(CORES)" "$(BUDGET)"
 
 clean:
 	rm -f $(TARGETS)
