@@ -84,6 +84,17 @@ static float clamp_range(float v, float lo, float hi, float def_val) {
     return v;
 }
 
+static int parse_vec3_csv(const char *s, Vec3 *out) {
+    if (!s || !out) return 0;
+    float a = 0.0f, b = 0.0f, c = 0.0f;
+    if (sscanf(s, "%f,%f,%f", &a, &b, &c) != 3) return 0;
+    if (!isfinite(a) || !isfinite(b) || !isfinite(c)) return 0;
+    out->x = a;
+    out->y = b;
+    out->z = c;
+    return 1;
+}
+
 static Vec3 v3_sub(Vec3 a, Vec3 b) {
     Vec3 r = { a.x - b.x, a.y - b.y, a.z - b.z };
     return r;
@@ -661,10 +672,13 @@ static int save_ppm(const char *path) {
     return 1;
 }
 
-static int render_frame(const Scene *s, float phase, const char *out_path) {
+static int render_frame(const Scene *s, float phase, Vec3 grab_offset, Vec3 rot_offset, const char *out_path) {
     clear_buffers(18, 24, 34);
 
     Camera frame_cam = s->cam;
+    frame_cam.pos = v3_add(frame_cam.pos, grab_offset);
+    frame_cam.yaw += rot_offset.y;
+    frame_cam.pitch += rot_offset.x;
     if (s->cam.orbit_cam) {
         frame_cam.yaw += phase;
     }
@@ -673,7 +687,11 @@ static int render_frame(const Scene *s, float phase, const char *out_path) {
     if (!anim_v) return 0;
 
     for (int i = 0; i < s->vcount; i++) {
-        anim_v[i] = s->verts[i];
+        Vec3 v = s->verts[i];
+        if (fabsf(rot_offset.z) > 1e-6f) {
+            v = rot_xyz(v, 0.0f, 0.0f, rot_offset.z);
+        }
+        anim_v[i] = v;
     }
 
     for (int oi = 0; oi < s->obj_count; oi++) {
@@ -681,7 +699,7 @@ static int render_frame(const Scene *s, float phase, const char *out_path) {
         if (fabsf(sp.spin_y) > 1e-5f) {
             float angle = phase * sp.spin_y;
             for (int vi = sp.v_start; vi < sp.v_start + sp.v_count && vi < s->vcount; vi++) {
-                Vec3 rel = v3_sub(s->verts[vi], sp.center);
+                Vec3 rel = v3_sub(anim_v[vi], sp.center);
                 Vec3 rot = rot_xyz(rel, 0.0f, angle, 0.0f);
                 anim_v[vi] = v3_add(sp.center, rot);
             }
@@ -703,12 +721,63 @@ static int render_frame(const Scene *s, float phase, const char *out_path) {
     return save_ppm(out_path);
 }
 
+static void print_help(void) {
+    printf(
+        "mini_blender - Blender-like CLI shortcuts & C11 renderer\n"
+        "Shortcuts:\n"
+        "  -h              Show this help\n"
+        "  -f <num>        Start frame (default: 0)\n"
+        "  -n <num>        Frame count (default: 16)\n"
+        "  -c <num>        Cycle frames (default: 32)\n"
+        "  -o <dir>        Output directory (default: renders)\n"
+        "  -s <file.xml>   Scene XML path\n"
+        "  -g <x,y,z>      Grab/move offset (Blender G feel)\n"
+        "  -r <x,y,z>      Rotate offset rx,ry,rz (Blender R feel)\n"
+        "  -z <fov>        FOV / lens zoom (Blender S/lens feel)\n"
+    );
+}
+
 int main(int argc, char **argv) {
-    int start_frame = (argc > 1) ? atoi(argv[1]) : 0;
-    int count = (argc > 2) ? atoi(argv[2]) : 16;
-    int total_cycle = (argc > 3) ? atoi(argv[3]) : 32;
-    const char *out_dir = (argc > 4) ? argv[4] : "renders";
-    const char *scene_path = (argc > 5) ? argv[5] : NULL;
+    int start_frame = 0;
+    int count = 16;
+    int total_cycle = 32;
+    const char *out_dir = "renders";
+    const char *scene_path = NULL;
+    Vec3 grab_offset = { 0.0f, 0.0f, 0.0f };
+    Vec3 rot_offset = { 0.0f, 0.0f, 0.0f };
+    float custom_fov = -1.0f;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_help();
+            return 0;
+        } else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
+            start_frame = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+            count = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
+            total_cycle = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+            out_dir = argv[++i];
+        } else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
+            scene_path = argv[++i];
+        } else if (strcmp(argv[i], "-g") == 0 && i + 1 < argc) {
+            if (!parse_vec3_csv(argv[++i], &grab_offset)) {
+                fprintf(stderr, "Error: invalid -g value, expected x,y,z\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "-r") == 0 && i + 1 < argc) {
+            if (!parse_vec3_csv(argv[++i], &rot_offset)) {
+                fprintf(stderr, "Error: invalid -r value, expected x,y,z\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "-z") == 0 && i + 1 < argc) {
+            custom_fov = strtof(argv[++i], NULL);
+        } else {
+            fprintf(stderr, "Error: unknown or incomplete option '%s' (use -h)\n", argv[i]);
+            return 1;
+        }
+    }
 
     if (start_frame < 0) start_frame = 0;
     if (count < 1) count = 1;
@@ -722,6 +791,10 @@ int main(int argc, char **argv) {
         build_default_stress_scene(&s);
         printf("Built default stress scene: %d objs, %d lights, %d verts, %d tris\n",
                s.obj_count, s.light_count, s.vcount, s.tcount);
+    }
+
+    if (custom_fov > 0.0f) {
+        s.cam.fov = clamp_range(custom_fov, 50.0f, 1200.0f, s.cam.fov);
     }
 
     int ok_frames = 0;
@@ -739,7 +812,7 @@ int main(int argc, char **argv) {
             return 1;
         }
 
-        if (!render_frame(&s, phase, path)) {
+        if (!render_frame(&s, phase, grab_offset, rot_offset, path)) {
             return 1;
         }
 
