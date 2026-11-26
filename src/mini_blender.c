@@ -867,9 +867,13 @@ static int run_batch(
     printf("Batch finished: %d/%d frames in %.3fs (avg %.3fs/frame)\n",
            ok_frames, count, total_dt, avg_dt);
 
+#ifndef MB_NO_PREVIEW
     if (preview) {
         print_terminal_preview();
     }
+#else
+    (void)preview;
+#endif
     return 0;
 }
 
@@ -998,7 +1002,11 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "-i") == 0) {
             interactive = 1;
         } else if (strcmp(argv[i], "-p") == 0) {
+#ifndef MB_NO_PREVIEW
             preview = 1;
+#else
+            fprintf(stderr, "Note: -p is disabled in headless build (mini_blender_pi)\n");
+#endif
         } else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
             start_frame = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {

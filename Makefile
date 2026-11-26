@@ -7,27 +7,34 @@ ifneq (,$(filter aarch64 arm64 armv7l armv8l,$(UNAME_M)))
     CFLAGS += -mtune=native
 endif
 
-TARGET  := mini_blender
-SRC     := src/mini_blender.c
+TARGET    := mini_blender
+PI_TARGET := mini_blender_pi
+SRC       := src/mini_blender.c
 
-.PHONY: all clean run stress shell help
+.PHONY: all desktop pi clean run stress shell test help
 
-all: $(TARGET)
+all: desktop
 
-$(TARGET): $(SRC)
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+desktop: $(SRC)
+	$(CC) $(CFLAGS) $< -o $(TARGET) $(LDFLAGS)
 
-run: $(TARGET)
+pi: $(SRC)
+	$(CC) $(CFLAGS) -DMB_NO_PREVIEW $< -o $(PI_TARGET) $(LDFLAGS)
+
+run: desktop
 	./$(TARGET) -f 0 -n 12 -c 24 -o renders -p
 
-shell: $(TARGET)
+shell: desktop
 	./$(TARGET) -i
 
-stress: $(TARGET)
-	./$(TARGET) -f 0 -n 60 -c 60 -o renders -s scenes/heavy_stress_scene.xml -g 0.0,0.3,0.0 -r 0.04,0.15,0.0 -m 1.0 -q | tee logs/stress_v6_heavy.log
+stress: pi
+	./$(PI_TARGET) -f 0 -n 80 -c 80 -o renders -s scenes/heavy_stress_scene.xml -g 0.0,0.3,0.0 -r 0.04,0.15,0.0 -m 1.0 -q | tee logs/stress_v7_pi.log
 
-help: $(TARGET)
+test: desktop pi
+	./tests/run_all_tests.sh
+
+help: desktop
 	./$(TARGET) -h
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(PI_TARGET)

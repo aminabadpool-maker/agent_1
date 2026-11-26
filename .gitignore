@@ -1,5 +1,6 @@
 agent_1
 mini_blender
+mini_blender_pi
 *.o
 *.ppm
 *.log
