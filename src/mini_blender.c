@@ -63,6 +63,7 @@ typedef struct {
 
 static unsigned char fb[H][W][3];
 static float zbuf[H][W];
+static Scene g_scene;
 
 static double now_sec(void) {
     struct timespec ts;
@@ -713,6 +714,24 @@ static int save_ppm(const char *path) {
     return 1;
 }
 
+static void print_terminal_preview(void) {
+    const int cols = 80;
+    const int rows = 24;
+    printf("\n--- Terminal Truecolor Preview (%dx%d) ---\n", cols, rows);
+    for (int ty = 0; ty < rows; ty++) {
+        int sy = (ty * H) / rows;
+        for (int tx = 0; tx < cols; tx++) {
+            int sx = (tx * W) / cols;
+            unsigned char r = fb[sy][sx][0];
+            unsigned char g = fb[sy][sx][1];
+            unsigned char b = fb[sy][sx][2];
+            printf("\x1b[48;2;%u;%u;%um ", r, g, b);
+        }
+        printf("\x1b[0m\n");
+    }
+    printf("------------------------------------------\n");
+}
+
 static int render_frame(
     const Scene *s, float phase,
     Vec3 grab_offset, Vec3 rot_offset, float scene_scale,
@@ -767,20 +786,168 @@ static int render_frame(
     return save_ppm(out_path);
 }
 
+static int run_batch(
+    int start_frame, int count, int total_cycle,
+    const char *out_dir, const char *scene_path,
+    Vec3 grab_offset, Vec3 rot_offset, float custom_fov, float scene_scale,
+    int quiet, int preview
+) {
+    if (start_frame < 0) start_frame = 0;
+    if (count < 1) count = 1;
+    if (total_cycle < 1) total_cycle = 32;
+    scene_scale = clamp_range(scene_scale, 0.1f, 10.0f, 1.0f);
+
+    if (scene_path && load_scene_xml(&g_scene, scene_path)) {
+        printf("Loaded XML scene '%s': %d objs, %d lights, %d verts, %d tris\n",
+               scene_path, g_scene.obj_count, g_scene.light_count, g_scene.vcount, g_scene.tcount);
+    } else {
+        build_default_stress_scene(&g_scene);
+        printf("Built default stress scene: %d objs, %d lights, %d verts, %d tris\n",
+               g_scene.obj_count, g_scene.light_count, g_scene.vcount, g_scene.tcount);
+    }
+
+    if (custom_fov > 0.0f) {
+        g_scene.cam.fov = clamp_range(custom_fov, 50.0f, 1400.0f, g_scene.cam.fov);
+    }
+
+    int ok_frames = 0;
+    double batch_start = now_sec();
+
+    for (int i = 0; i < count; i++) {
+        int f = start_frame + i;
+        double f_start = now_sec();
+        float phase = ((float)(f % total_cycle) / (float)total_cycle) * 6.2831853f;
+
+        char path[512];
+        int n = snprintf(path, sizeof(path), "%s/frame_%04d.ppm", out_dir, f);
+        if (n <= 0 || (size_t)n >= sizeof(path)) {
+            fprintf(stderr, "Error: output path too long for frame %d\n", f);
+            return 1;
+        }
+
+        if (!render_frame(&g_scene, phase, grab_offset, rot_offset, scene_scale, path)) {
+            return 1;
+        }
+
+        ok_frames++;
+        if (!quiet) {
+            double dt = now_sec() - f_start;
+            printf("Frame %04d -> %s (%.3fs)\n", f, path, dt);
+            fflush(stdout);
+        }
+    }
+
+    double total_dt = now_sec() - batch_start;
+    double avg_dt = (ok_frames > 0) ? (total_dt / (double)ok_frames) : 0.0;
+    printf("Batch finished: %d/%d frames in %.3fs (avg %.3fs/frame)\n",
+           ok_frames, count, total_dt, avg_dt);
+
+    if (preview) {
+        print_terminal_preview();
+    }
+    return 0;
+}
+
+static void print_shell_help(void) {
+    printf(
+        "Interactive Shell Commands:\n"
+        "  g <x,y,z>      Set grab/move offset\n"
+        "  r <rx,ry,rz>   Set rotate offset\n"
+        "  z <fov>        Set FOV zoom\n"
+        "  m <scale>      Set scene scale\n"
+        "  n <count>      Set frame count\n"
+        "  f <start>      Set start frame\n"
+        "  s <scene.xml>  Set scene XML path\n"
+        "  p              Toggle terminal preview\n"
+        "  render | run   Run batch render\n"
+        "  status         Print current settings\n"
+        "  help           Show commands\n"
+        "  quit | exit    Exit shell\n"
+    );
+}
+
+static int run_interactive_shell(
+    int start_frame, int count, int total_cycle,
+    const char *out_dir, const char *scene_path,
+    Vec3 grab_offset, Vec3 rot_offset, float custom_fov, float scene_scale,
+    int preview
+) {
+    char scene_buf[512] = "";
+    if (scene_path) {
+        snprintf(scene_buf, sizeof(scene_buf), "%s", scene_path);
+    }
+
+    printf("mini_blender interactive shell (type 'help' or 'render', 'quit' to exit)\n");
+    char line[512];
+    while (1) {
+        printf("mb> ");
+        fflush(stdout);
+        if (!fgets(line, sizeof(line), stdin)) {
+            printf("\n");
+            break;
+        }
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] == '\0') continue;
+
+        if (strcmp(line, "quit") == 0 || strcmp(line, "exit") == 0 || strcmp(line, "q") == 0) {
+            break;
+        } else if (strcmp(line, "help") == 0 || strcmp(line, "h") == 0) {
+            print_shell_help();
+        } else if (strcmp(line, "p") == 0) {
+            preview = !preview;
+            printf("Terminal preview: %s\n", preview ? "ON" : "OFF");
+        } else if (strcmp(line, "render") == 0 || strcmp(line, "run") == 0) {
+            run_batch(start_frame, count, total_cycle, out_dir,
+                      scene_buf[0] ? scene_buf : NULL,
+                      grab_offset, rot_offset, custom_fov, scene_scale, 0, preview);
+        } else if (strcmp(line, "status") == 0) {
+            printf("f=%d n=%d c=%d o=%s scene=%s g=(%.2f,%.2f,%.2f) r=(%.2f,%.2f,%.2f) z=%.1f m=%.2f preview=%s\n",
+                   start_frame, count, total_cycle, out_dir,
+                   scene_buf[0] ? scene_buf : "<default>",
+                   grab_offset.x, grab_offset.y, grab_offset.z,
+                   rot_offset.x, rot_offset.y, rot_offset.z,
+                   custom_fov, scene_scale, preview ? "ON" : "OFF");
+        } else if (strncmp(line, "g ", 2) == 0) {
+            if (!parse_vec3_csv(line + 2, &grab_offset)) {
+                printf("Invalid g format, use: g x,y,z\n");
+            }
+        } else if (strncmp(line, "r ", 2) == 0) {
+            if (!parse_vec3_csv(line + 2, &rot_offset)) {
+                printf("Invalid r format, use: r rx,ry,rz\n");
+            }
+        } else if (strncmp(line, "z ", 2) == 0) {
+            custom_fov = strtof(line + 2, NULL);
+        } else if (strncmp(line, "m ", 2) == 0) {
+            scene_scale = strtof(line + 2, NULL);
+        } else if (strncmp(line, "n ", 2) == 0) {
+            count = atoi(line + 2);
+        } else if (strncmp(line, "f ", 2) == 0) {
+            start_frame = atoi(line + 2);
+        } else if (strncmp(line, "s ", 2) == 0) {
+            snprintf(scene_buf, sizeof(scene_buf), "%s", line + 2);
+        } else {
+            printf("Unknown command '%s' (type 'help')\n", line);
+        }
+    }
+    return 0;
+}
+
 static void print_help(void) {
     printf(
-        "mini_blender - Blender-like CLI shortcuts & C11 renderer\n"
+        "mini_blender - Blender-like CLI shortcuts, shell & graphics\n"
         "Shortcuts:\n"
         "  -h              Show this help\n"
+        "  -i              Interactive shell mode\n"
+        "  -p              Terminal truecolor graphics preview\n"
         "  -f <num>        Start frame (default: 0)\n"
         "  -n <num>        Frame count (default: 16)\n"
         "  -c <num>        Cycle frames (default: 32)\n"
         "  -o <dir>        Output directory (default: renders)\n"
         "  -s <file.xml>   Scene XML path\n"
-        "  -g <x,y,z>      Grab/move camera offset (Blender G feel)\n"
-        "  -r <x,y,z>      Rotate offset rx,ry,rz (Blender R feel)\n"
+        "  -g <x,y,z>      Grab/move offset\n"
+        "  -r <x,y,z>      Rotate offset rx,ry,rz\n"
         "  -z <fov>        FOV / lens zoom\n"
-        "  -m <scale>      Scene scale multiplier (Blender S feel)\n"
+        "  -m <scale>      Scene scale multiplier\n"
         "  -q              Quiet per-frame log\n"
     );
 }
@@ -796,11 +963,17 @@ int main(int argc, char **argv) {
     float custom_fov = -1.0f;
     float scene_scale = 1.0f;
     int quiet = 0;
+    int interactive = 0;
+    int preview = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             print_help();
             return 0;
+        } else if (strcmp(argv[i], "-i") == 0) {
+            interactive = 1;
+        } else if (strcmp(argv[i], "-p") == 0) {
+            preview = 1;
         } else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
             start_frame = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
@@ -833,55 +1006,15 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (start_frame < 0) start_frame = 0;
-    if (count < 1) count = 1;
-    if (total_cycle < 1) total_cycle = 32;
-    scene_scale = clamp_range(scene_scale, 0.1f, 10.0f, 1.0f);
-
-    static Scene s;
-    if (scene_path && load_scene_xml(&s, scene_path)) {
-        printf("Loaded XML scene '%s': %d objs, %d lights, %d verts, %d tris\n",
-               scene_path, s.obj_count, s.light_count, s.vcount, s.tcount);
-    } else {
-        build_default_stress_scene(&s);
-        printf("Built default stress scene: %d objs, %d lights, %d verts, %d tris\n",
-               s.obj_count, s.light_count, s.vcount, s.tcount);
+    if (interactive) {
+        return run_interactive_shell(
+            start_frame, count, total_cycle, out_dir, scene_path,
+            grab_offset, rot_offset, custom_fov, scene_scale, preview
+        );
     }
 
-    if (custom_fov > 0.0f) {
-        s.cam.fov = clamp_range(custom_fov, 50.0f, 1400.0f, s.cam.fov);
-    }
-
-    int ok_frames = 0;
-    double batch_start = now_sec();
-
-    for (int i = 0; i < count; i++) {
-        int f = start_frame + i;
-        double f_start = now_sec();
-        float phase = ((float)(f % total_cycle) / (float)total_cycle) * 6.2831853f;
-
-        char path[512];
-        int n = snprintf(path, sizeof(path), "%s/frame_%04d.ppm", out_dir, f);
-        if (n <= 0 || (size_t)n >= sizeof(path)) {
-            fprintf(stderr, "Error: output path too long for frame %d\n", f);
-            return 1;
-        }
-
-        if (!render_frame(&s, phase, grab_offset, rot_offset, scene_scale, path)) {
-            return 1;
-        }
-
-        ok_frames++;
-        if (!quiet) {
-            double dt = now_sec() - f_start;
-            printf("Frame %04d -> %s (%.3fs)\n", f, path, dt);
-            fflush(stdout);
-        }
-    }
-
-    double total_dt = now_sec() - batch_start;
-    double avg_dt = (ok_frames > 0) ? (total_dt / (double)ok_frames) : 0.0;
-    printf("Batch finished: %d/%d frames in %.3fs (avg %.3fs/frame)\n",
-           ok_frames, count, total_dt, avg_dt);
-    return 0;
+    return run_batch(
+        start_frame, count, total_cycle, out_dir, scene_path,
+        grab_offset, rot_offset, custom_fov, scene_scale, quiet, preview
+    );
 }

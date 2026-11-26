@@ -10,7 +10,7 @@ endif
 TARGET  := mini_blender
 SRC     := src/mini_blender.c
 
-.PHONY: all clean run stress help
+.PHONY: all clean run stress shell help
 
 all: $(TARGET)
 
@@ -18,10 +18,13 @@ $(TARGET): $(SRC)
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 run: $(TARGET)
-	./$(TARGET) -f 0 -n 12 -c 24 -o renders
+	./$(TARGET) -f 0 -n 12 -c 24 -o renders -p
+
+shell: $(TARGET)
+	./$(TARGET) -i
 
 stress: $(TARGET)
-	./$(TARGET) -f 0 -n 24 -c 48 -o renders -s scenes/blender_like_scene.xml | tee logs/stress_v4.log
+	./$(TARGET) -f 0 -n 60 -c 60 -o renders -s scenes/heavy_stress_scene.xml -g 0.0,0.3,0.0 -r 0.04,0.15,0.0 -m 1.0 -q | tee logs/stress_v6_heavy.log
 
 help: $(TARGET)
 	./$(TARGET) -h
