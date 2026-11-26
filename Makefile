@@ -11,10 +11,13 @@ FRAMES ?= 300
 RAM ?= 1001
 CORES ?= 4
 BUDGET ?= 500
+MAX_THREADS ?= 4
+WATCH_DIR ?= renders/pi_run
+TELEMETRY_LOG ?= renders/pi_run/telemetry.jsonl
 
-TARGETS := tools/pi_budget tools/pi_lib_demo
+TARGETS := tools/pi_budget tools/pi_lib_demo tools/pi_telemetry
 
-.PHONY: all check health plan clean
+.PHONY: all check health plan telemetry clean
 
 all: $(TARGETS)
 
@@ -23,6 +26,9 @@ tools/pi_budget: tools/pi_budget.c $(PI_LIB_SRC) $(PI_LIB_HDR)
 
 tools/pi_lib_demo: tools/pi_lib_demo.c $(PI_LIB_SRC) $(PI_LIB_HDR)
 	$(CC) $(CFLAGS) tools/pi_lib_demo.c $(PI_LIB_SRC) -o $@
+
+tools/pi_telemetry: tools/pi_telemetry.c $(PI_LIB_SRC) $(PI_LIB_HDR)
+	$(CC) $(CFLAGS) tools/pi_telemetry.c $(PI_LIB_SRC) -o $@
 
 check: all tools/run_budget_matrix.sh
 	./tools/run_budget_matrix.sh
@@ -37,6 +43,9 @@ health:
 
 plan: health tools/pi_budget
 	./tools/pi_budget "$(W)" "$(H)" "$(FRAMES)" "$(RAM)" "$(CORES)" "$(BUDGET)"
+
+telemetry: tools/pi_telemetry
+	./tools/pi_telemetry "$(W)" "$(H)" "$(FRAMES)" "$(BUDGET)" "$(MAX_THREADS)" "$(WATCH_DIR)" "$(TELEMETRY_LOG)"
 
 clean:
 	rm -f $(TARGETS)
