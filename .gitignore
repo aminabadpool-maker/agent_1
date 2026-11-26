@@ -19,3 +19,10 @@ renders/*/*.mp4
 agent_1
 *.ppm
 renders/
+
+# Compiled binaries in tools/ (keep .c, .h, .sh, and subdirectories)
+tools/*
+!tools/*.c
+!tools/*.h
+!tools/*.sh
+!tools/*/
