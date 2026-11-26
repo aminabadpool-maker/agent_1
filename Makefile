@@ -17,7 +17,7 @@ TELEMETRY_LOG ?= renders/pi_run/telemetry.jsonl
 
 TARGETS := tools/pi_budget tools/pi_lib_demo tools/pi_telemetry
 
-.PHONY: all check health plan telemetry clean
+.PHONY: all check health plan telemetry log-summary clean
 
 all: $(TARGETS)
 
@@ -46,6 +46,65 @@ plan: health tools/pi_budget
 
 telemetry: tools/pi_telemetry
 	./tools/pi_telemetry "$(W)" "$(H)" "$(FRAMES)" "$(BUDGET)" "$(MAX_THREADS)" "$(WATCH_DIR)" "$(TELEMETRY_LOG)"
+
+log-summary:
+	@if [ ! -f "$(TELEMETRY_LOG)" ]; then \
+		echo "[ERR] Missing $(TELEMETRY_LOG)" >&2; \
+		exit 1; \
+	fi
+	@awk -F'[,{}":]+' ' \
+	BEGIN { \
+		printf "%-22s %-7s %-8s %-9s %-7s %-8s %-12s\n", \
+		       "TS", "HEALTHY", "RAM_MB", "DISK_MB", "TEMP_C", "THREADS", "BATCH_FRAMES" \
+	} \
+	NF > 0 { \
+		ts=""; h=""; ram=""; disk=""; temp=""; thr=""; batch=""; \
+		for (i=1; i<=NF; i++) { \
+			gsub(/^[[:space:]]+|[[:space:]]+$$/, "", $$i); \
+			if ($$i == "ts") { \
+				y=$$(i+1); m=$$(i+2); s=$$(i+3); \
+				gsub(/^[[:space:]]+|[[:space:]]+$$/, "", y); \
+				gsub(/^[[:space:]]+|[[:space:]]+$$/, "", m); \
+				gsub(/^[[:space:]]+|[[:space:]]+$$/, "", s); \
+				if (y != "" && m != "" && s != "") ts = y ":" m ":" s; \
+			} else if ($$i == "healthy") h = $$(i+1); \
+			else if ($$i == "avail_ram_mb") ram = $$(i+1); \
+			else if ($$i == "disk_free_mb") disk = $$(i+1); \
+			else if ($$i == "temp_c") temp = $$(i+1); \
+			else if ($$i == "threads") thr = $$(i+1); \
+			else if ($$i == "batch_frames") batch = $$(i+1); \
+		} \
+		gsub(/^[[:space:]]+|[[:space:]]+$$/, "", h); \
+		gsub(/^[[:space:]]+|[[:space:]]+$$/, "", ram); \
+		gsub(/^[[:space:]]+|[[:space:]]+$$/, "", disk); \
+		gsub(/^[[:space:]]+|[[:space:]]+$$/, "", temp); \
+		gsub(/^[[:space:]]+|[[:space:]]+$$/, "", thr); \
+		gsub(/^[[:space:]]+|[[:space:]]+$$/, "", batch); \
+		if (ts != "") { \
+			n++; \
+			h_sum += (h+0); \
+			r_val = (ram+0); r_sum += r_val; \
+			if (n==1 || r_val < r_min) r_min = r_val; \
+			if (n==1 || r_val > r_max) r_max = r_val; \
+			t_val = (temp+0.0); t_sum += t_val; \
+			if (n==1 || t_val < t_min) t_min = t_val; \
+			if (n==1 || t_val > t_max) t_max = t_val; \
+			b_val = (batch+0); b_sum += b_val; \
+			if (n==1 || b_val < b_min) b_min = b_val; \
+			if (n==1 || b_val > b_max) b_max = b_val; \
+			rows[n] = sprintf("%-22s %-7s %-8s %-9s %-7s %-8s %-12s", ts, h, ram, disk, temp, thr, batch); \
+		} \
+	} \
+	END { \
+		if (n == 0) { print "No valid records found."; exit 1 } \
+		start = (n > 10) ? (n - 9) : 1; \
+		for (k=start; k<=n; k++) print rows[k]; \
+		print ""; \
+		printf "Records      : %d (healthy=%d)\n", n, h_sum; \
+		printf "Avail RAM MB : min=%d avg=%.1f max=%d\n", r_min, r_sum/n, r_max; \
+		printf "CPU Temp C   : min=%.1f avg=%.1f max=%.1f\n", t_min, t_sum/n, t_max; \
+		printf "Batch Frames : min=%d avg=%.1f max=%d\n", b_min, b_sum/n, b_max; \
+	}' "$(TELEMETRY_LOG)"
 
 clean:
 	rm -f $(TARGETS)
