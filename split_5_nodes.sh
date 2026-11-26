@@ -62,17 +62,34 @@ for idx in 1 2 3 4 5; do
     node_tag=$(printf "node_%02d" "$idx")
     node_out="${out_base}/${node_tag}"
     node_log="logs/${node_tag}.log"
-    cmd="./mini_blender_pi -f ${cur_start} -n ${chunk_n} -c ${cycle} -W ${width} -H ${height} -o ${node_out} -s ${scene} ${extra_args}"
+
+    node_cmd=(
+        ./mini_blender_pi
+        -f "$cur_start"
+        -n "$chunk_n"
+        -c "$cycle"
+        -W "$width"
+        -H "$height"
+        -o "$node_out"
+        -s "$scene"
+    )
+    if [ -n "$extra_args" ]; then
+        # shellcheck disable=SC2206
+        extra_arr=($extra_args)
+        node_cmd+=("${extra_arr[@]}")
+    fi
+    cmd_str=$(printf '%q ' "${node_cmd[@]}")
+    cmd_str="${cmd_str% }"
 
     echo "[Node ${idx}/5 -> ${node_tag}] frames ${cur_start}..${chunk_end} (count=${chunk_n}) res=${width}x${height} | out=${node_out}"
-    echo "  CMD: ${cmd}"
+    echo "  CMD: ${cmd_str}"
 
     if [ "$mode" = "run" ]; then
         mkdir -p "$node_out"
         t_n0=$(date +%s)
         {
             echo "=== ${node_tag} START: $(date) ==="
-            eval "$cmd"
+            "${node_cmd[@]}"
             n_files=$(find "$node_out" -maxdepth 1 -name 'frame_*.ppm' | wc -l)
             n_size=$(du -sh "$node_out" | awk '{print $1}')
             t_n1=$(date +%s)
