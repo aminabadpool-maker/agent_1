@@ -1,37 +1,32 @@
-CC      ?= cc
-CFLAGS  ?= -std=c11 -O3 -Wall -Wextra -Wpedantic
-LDFLAGS ?= -lm
+CC ?= cc
+CFLAGS ?= -std=c11 -O3 -Wall -Wextra
 
-UNAME_M := $(shell uname -m)
-ifneq (,$(filter aarch64 arm64 armv7l armv8l,$(UNAME_M)))
-    CFLAGS += -mtune=native
-endif
+PI_LIB_SRC := tools/pi_lib.c
+PI_LIB_HDR := tools/pi_lib.h
+HEALTH_SCRIPT := tools/pi_health_check.sh
 
-TARGET    := mini_blender
-PI_TARGET := mini_blender_pi
-SRC       := src/mini_blender.c
+TARGETS := tools/pi_budget tools/pi_lib_demo
 
-.PHONY: all desktop pi clean run stress test help
+.PHONY: all check health clean
 
-all: desktop
+all: $(TARGETS)
 
-desktop: $(SRC)
-	$(CC) $(CFLAGS) $< -o $(TARGET) $(LDFLAGS)
+tools/pi_budget: tools/pi_budget.c $(PI_LIB_SRC) $(PI_LIB_HDR)
+	$(CC) $(CFLAGS) tools/pi_budget.c $(PI_LIB_SRC) -o $@
 
-pi: $(SRC)
-	$(CC) $(CFLAGS) -DMB_NO_PREVIEW $< -o $(PI_TARGET) $(LDFLAGS)
+tools/pi_lib_demo: tools/pi_lib_demo.c $(PI_LIB_SRC) $(PI_LIB_HDR)
+	$(CC) $(CFLAGS) tools/pi_lib_demo.c $(PI_LIB_SRC) -o $@
 
-run: desktop
-	./$(TARGET) -f 0 -n 12 -c 24 -o renders -p
+check: all tools/run_budget_matrix.sh
+	./tools/run_budget_matrix.sh
 
-stress: pi
-	./$(PI_TARGET) -f 0 -n 120 -c 90 -o renders -s scenes/mega_stress_scene.xml -g 0.0,0.3,0.0 -r 0.04,0.15,0.0 -m 1.0 -q | tee logs/stress_pi.log
-
-test: desktop pi
-	./tests/run_all_tests.sh
-
-help: desktop
-	./$(TARGET) -h
+health:
+	@if [ ! -f "$(HEALTH_SCRIPT)" ]; then \
+		echo "[ERR] Missing $(HEALTH_SCRIPT)" >&2; \
+		exit 1; \
+	fi
+	@chmod +x "$(HEALTH_SCRIPT)"
+	./$(HEALTH_SCRIPT)
 
 clean:
-	rm -f $(TARGET) $(PI_TARGET)
+	rm -f $(TARGETS)
