@@ -77,8 +77,40 @@ typedef struct {
     int light_count;
 } Scene;
 
-static unsigned char fb[H][W][3];
-static float zbuf[H][W];
+static int g_ren_w = W;
+static int g_ren_h = H;
+static unsigned char *fb_flat = NULL;
+static float *zbuf_flat = NULL;
+
+static int mb_alloc_buffers(int w, int h) {
+    if (w < 16 || h < 16 || w > 4096 || h > 4096) return 0;
+    size_t pixels = (size_t)w * (size_t)h;
+    if (pixels > (size_t)(16 * 1024 * 1024)) return 0;
+    unsigned char *new_fb = (unsigned char *)calloc(pixels * 3u, 1u);
+    float *new_zb = (float *)malloc(pixels * sizeof(float));
+    if (!new_fb || !new_zb) {
+        free(new_fb);
+        free(new_zb);
+        return 0;
+    }
+    free(fb_flat);
+    free(zbuf_flat);
+    fb_flat = new_fb;
+    zbuf_flat = new_zb;
+    g_ren_w = w;
+    g_ren_h = h;
+    return 1;
+}
+
+static void mb_free_buffers(void) {
+    free(fb_flat);
+    free(zbuf_flat);
+    fb_flat = NULL;
+    zbuf_flat = NULL;
+}
+
+#define FB_AT(x, y, c) (fb_flat[((size_t)(y) * (size_t)g_ren_w + (size_t)(x)) * 3u + (size_t)(c)])
+#define ZB_AT(x, y) (zbuf_flat[(size_t)(y) * (size_t)g_ren_w + (size_t)(x)])
 static Scene g_scene;
 
 static double now_sec(void) {
@@ -935,12 +967,12 @@ static int load_scene_xml(Scene *s, const char *path) {
 }
 
 static void clear_buffers(unsigned char r, unsigned char g, unsigned char b) {
-    for (int y = 0; y < H; y++) {
-        for (int x = 0; x < W; x++) {
-            fb[y][x][0] = r;
-            fb[y][x][1] = g;
-            fb[y][x][2] = b;
-            zbuf[y][x] = FLT_MAX;
+    for (int y = 0; y < g_ren_h; y++) {
+        for (int x = 0; x < g_ren_w; x++) {
+            FB_AT(x, y, 0) = r;
+            FB_AT(x, y, 1) = g;
+            FB_AT(x, y, 2) = b;
+            ZB_AT(x, y) = FLT_MAX;
         }
     }
 }
@@ -1003,12 +1035,12 @@ static void raster_tri(
     unsigned char sg = clamp_u8((float)tri->g * acc_g);
     unsigned char sb = clamp_u8((float)tri->b * acc_b);
 
-    float sx0 = W * 0.5f + ((p0.x - cam->pos.x) * cam->fov) / z0;
-    float sy0 = H * 0.5f - ((p0.y - cam->pos.y) * cam->fov) / z0;
-    float sx1 = W * 0.5f + ((p1.x - cam->pos.x) * cam->fov) / z1;
-    float sy1 = H * 0.5f - ((p1.y - cam->pos.y) * cam->fov) / z1;
-    float sx2 = W * 0.5f + ((p2.x - cam->pos.x) * cam->fov) / z2;
-    float sy2 = H * 0.5f - ((p2.y - cam->pos.y) * cam->fov) / z2;
+    float sx0 = g_ren_w * 0.5f + ((p0.x - cam->pos.x) * cam->fov) / z0;
+    float sy0 = g_ren_h * 0.5f - ((p0.y - cam->pos.y) * cam->fov) / z0;
+    float sx1 = g_ren_w * 0.5f + ((p1.x - cam->pos.x) * cam->fov) / z1;
+    float sy1 = g_ren_h * 0.5f - ((p1.y - cam->pos.y) * cam->fov) / z1;
+    float sx2 = g_ren_w * 0.5f + ((p2.x - cam->pos.x) * cam->fov) / z2;
+    float sy2 = g_ren_h * 0.5f - ((p2.y - cam->pos.y) * cam->fov) / z2;
 
     if (!isfinite(sx0) || !isfinite(sy0) || !isfinite(sx1) || !isfinite(sy1) || !isfinite(sx2) || !isfinite(sy2)) {
         return;
@@ -1023,9 +1055,9 @@ static void raster_tri(
     int max_y = (int)ceilf(fmaxf(sy0, fmaxf(sy1, sy2)));
 
     if (min_x < 0) min_x = 0;
-    if (max_x >= W) max_x = W - 1;
+    if (max_x >= g_ren_w) max_x = g_ren_w - 1;
     if (min_y < 0) min_y = 0;
-    if (max_y >= H) max_y = H - 1;
+    if (max_y >= g_ren_h) max_y = g_ren_h - 1;
 
     float inv_area = 1.0f / area;
 
@@ -1047,11 +1079,11 @@ static void raster_tri(
             w2 *= inv_area;
 
             float z = w0 * z0 + w1 * z1 + w2 * z2;
-            if (z < zbuf[y][x]) {
-                zbuf[y][x] = z;
-                fb[y][x][0] = sr;
-                fb[y][x][1] = sg;
-                fb[y][x][2] = sb;
+            if (z < ZB_AT(x, y)) {
+                ZB_AT(x, y) = z;
+                FB_AT(x, y, 0) = sr;
+                FB_AT(x, y, 1) = sg;
+                FB_AT(x, y, 2) = sb;
             }
         }
     }
@@ -1069,13 +1101,14 @@ static int save_ppm(const char *path) {
         fprintf(stderr, "Error: cannot create '%s': %s\n", tmp_path, strerror(errno));
         return 0;
     }
-    if (fprintf(f, "P6\n%d %d\n255\n", W, H) < 0) {
+    if (fprintf(f, "P6\n%d %d\n255\n", g_ren_w, g_ren_h) < 0) {
         fclose(f);
         remove(tmp_path);
         return 0;
     }
-    size_t written = fwrite(fb, 1, sizeof(fb), f);
-    if (fclose(f) != 0 || written != sizeof(fb)) {
+    size_t expected_bytes = (size_t)g_ren_w * (size_t)g_ren_h * 3u;
+    size_t written = fwrite(fb_flat, 1, expected_bytes, f);
+    if (fclose(f) != 0 || written != expected_bytes) {
         fprintf(stderr, "Error: incomplete write to '%s'\n", tmp_path);
         remove(tmp_path);
         return 0;
@@ -1092,27 +1125,27 @@ static int save_ppm(const char *path) {
 static void print_terminal_preview(void) {
     const int cols = 80;
     const int rows = 24;
-    int step_x = W / cols;
-    int step_y = H / rows;
+    int step_x = g_ren_w / cols;
+    int step_y = g_ren_h / rows;
     if (step_x < 1) step_x = 1;
     if (step_y < 1) step_y = 1;
 
     printf("\n--- Terminal Truecolor Preview (%dx%d) ---\n", cols, rows);
     for (int ty = 0; ty < rows; ty++) {
-        int y0 = (ty * H) / rows;
+        int y0 = (ty * g_ren_h) / rows;
         int y1 = y0 + step_y;
-        if (y1 > H) y1 = H;
+        if (y1 > g_ren_h) y1 = g_ren_h;
         for (int tx = 0; tx < cols; tx++) {
-            int x0 = (tx * W) / cols;
+            int x0 = (tx * g_ren_w) / cols;
             int x1 = x0 + step_x;
-            if (x1 > W) x1 = W;
+            if (x1 > g_ren_w) x1 = g_ren_w;
 
             unsigned long sum_r = 0, sum_g = 0, sum_b = 0, cnt = 0;
             for (int y = y0; y < y1; y++) {
                 for (int x = x0; x < x1; x++) {
-                    sum_r += fb[y][x][0];
-                    sum_g += fb[y][x][1];
-                    sum_b += fb[y][x][2];
+                    sum_r += FB_AT(x, y, 0);
+                    sum_g += FB_AT(x, y, 1);
+                    sum_b += FB_AT(x, y, 2);
                     cnt++;
                 }
             }
@@ -1427,6 +1460,11 @@ static void print_help(void) {
 }
 
 int main(int argc, char **argv) {
+    if (!mb_alloc_buffers(W, H)) {
+        fprintf(stderr, "Error: failed to allocate default framebuffer\n");
+        return 1;
+    }
+
     int start_frame = 0;
     int count = 16;
     int total_cycle = 32;
@@ -1460,7 +1498,21 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Error: invalid -f value\n");
                 return 1;
             }
-        } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+        } else if (strcmp(argv[i], "-W") == 0 && i + 1 < argc) {
+            int req_w = 0;
+            if (!parse_int_safe(argv[++i], &req_w) || !mb_alloc_buffers(req_w, g_ren_h)) {
+                fprintf(stderr, "Error: invalid -W value\n");
+                mb_free_buffers();
+                return 1;
+            }
+} else if (strcmp(argv[i], "-H") == 0 && i + 1 < argc) {
+            int req_h = 0;
+            if (!parse_int_safe(argv[++i], &req_h) || !mb_alloc_buffers(g_ren_w, req_h)) {
+                fprintf(stderr, "Error: invalid -H value\n");
+                mb_free_buffers();
+                return 1;
+            }
+} else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
             if (!parse_int_safe(argv[++i], &count)) {
                 fprintf(stderr, "Error: invalid -n value\n");
                 return 1;
