@@ -21,7 +21,7 @@ run: $(TARGET)
 	./$(TARGET) 0 12 24 renders
 
 stress: $(TARGET)
-	./$(TARGET) 0 24 48 renders scenes/sample_env.xml | tee logs/stress_make.log
+	./$(TARGET) 0 24 48 renders scenes/sample_env.xml | tee logs/stress_v2.log
 
 clean:
 	rm -f $(TARGET)
