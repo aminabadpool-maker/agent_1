@@ -17,6 +17,8 @@
 #define MAX_CUSTOM_V 8192
 #define MAX_CUSTOM_T 16384
 #define MAX_TAG_BUF 4096
+#define MAX_BATCH_FRAMES 2000
+#define MAX_CYCLE_FRAMES 100000
 
 typedef struct {
     float x, y, z;
@@ -95,8 +97,53 @@ static float clamp_range(float v, float lo, float hi, float def_val) {
     return v;
 }
 
+static int has_control_chars(const char *s) {
+    if (!s) return 1;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        if (*p < 0x20 && *p != '\t') return 1;
+    }
+    return 0;
+}
+
+static int is_safe_out_dir(const char *path) {
+    if (!path || path[0] == '\0') return 0;
+    if (strlen(path) > 256) return 0;
+    if (has_control_chars(path)) return 0;
+    if (strstr(path, "..") != NULL) return 0;
+    return 1;
+}
+
+static int is_safe_xml_path(const char *path) {
+    if (!path || path[0] == '\0') return 0;
+    if (strlen(path) > 400) return 0;
+    if (has_control_chars(path)) return 0;
+    if (strstr(path, "..") != NULL) return 0;
+    return 1;
+}
+
+static void sanitize_shell_line(char *line) {
+    if (!line) return;
+    size_t w_idx = 0;
+    for (size_t r_idx = 0; line[r_idx] != '\0'; r_idx++) {
+        unsigned char c = (unsigned char)line[r_idx];
+        if (c == '\r' || c == '\n') continue;
+        if (c < 0x20 && c != '\t') continue;
+        line[w_idx++] = (char)c;
+    }
+    line[w_idx] = '\0';
+}
+
+static int validate_batch_limits(int *start_frame, int *count, int *total_cycle) {
+    if (!start_frame || !count || !total_cycle) return 0;
+    if (*start_frame < 0) *start_frame = 0;
+    if (*start_frame > 1000000) return 0;
+    if (*count < 1 || *count > MAX_BATCH_FRAMES) return 0;
+    if (*total_cycle < 1 || *total_cycle > MAX_CYCLE_FRAMES) return 0;
+    return 1;
+}
+
 static int parse_float_safe(const char *s, float *out) {
-    if (!s || !out) return 0;
+    if (!s || !out || has_control_chars(s)) return 0;
     while (*s && isspace((unsigned char)*s)) s++;
     if (*s == '\0') return 0;
     errno = 0;
@@ -108,7 +155,7 @@ static int parse_float_safe(const char *s, float *out) {
 }
 
 static int parse_int_safe(const char *s, int *out) {
-    if (!s || !out) return 0;
+    if (!s || !out || has_control_chars(s)) return 0;
     while (*s && isspace((unsigned char)*s)) s++;
     if (*s == '\0') return 0;
     errno = 0;
@@ -121,7 +168,7 @@ static int parse_int_safe(const char *s, int *out) {
 }
 
 static int parse_vec3_csv(const char *s, Vec3 *out) {
-    if (!s || !out) return 0;
+    if (!s || !out || has_control_chars(s)) return 0;
     float a = 0.0f, b = 0.0f, c = 0.0f;
     if (sscanf(s, " %f , %f , %f ", &a, &b, &c) != 3) return 0;
     if (!isfinite(a) || !isfinite(b) || !isfinite(c)) return 0;
@@ -485,7 +532,6 @@ static unsigned char attr_color_u8(const char *tag, const char *key, unsigned ch
     if (!find_attr_value(tag, key, buf, sizeof(buf))) return def_val;
     float fv = 0.0f;
     if (!parse_float_safe(buf, &fv)) return def_val;
-    /* Support Blender-style 0.0..1.0 normalized floats when decimal point is used */
     if (strchr(buf, '.') != NULL && fv >= 0.0f && fv <= 1.0f) {
         return clamp_u8(fv * 255.0f);
     }
@@ -645,6 +691,10 @@ static void process_xml_tag(
 }
 
 static int load_scene_xml(Scene *s, const char *path) {
+    if (!is_safe_xml_path(path)) {
+        fprintf(stderr, "Warning: unsafe or invalid scene path '%s'\n", path ? path : "");
+        return 0;
+    }
     FILE *f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "Warning: cannot open scene file '%s': %s\n", path, strerror(errno));
@@ -987,9 +1037,15 @@ static int run_batch(
     Vec3 grab_offset, Vec3 rot_offset, float custom_fov, float scene_scale,
     int quiet, int preview
 ) {
-    if (start_frame < 0) start_frame = 0;
-    if (count < 1) count = 1;
-    if (total_cycle < 1) total_cycle = 32;
+    if (!is_safe_out_dir(out_dir)) {
+        fprintf(stderr, "Error: unsafe or invalid output directory '%s'\n", out_dir ? out_dir : "");
+        return 1;
+    }
+    if (!validate_batch_limits(&start_frame, &count, &total_cycle)) {
+        fprintf(stderr, "Error: batch parameters out of safe bounds (start=%d, count=%d, cycle=%d)\n",
+                start_frame, count, total_cycle);
+        return 1;
+    }
     scene_scale = clamp_range(scene_scale, 0.1f, 10.0f, 1.0f);
 
     if (scene_path && load_scene_xml(&g_scene, scene_path)) {
@@ -1074,7 +1130,7 @@ static int run_interactive_shell(
     int preview
 ) {
     char scene_buf[512] = "";
-    if (scene_path) {
+    if (scene_path && is_safe_xml_path(scene_path)) {
         snprintf(scene_buf, sizeof(scene_buf), "%s", scene_path);
     }
 
@@ -1087,7 +1143,7 @@ static int run_interactive_shell(
             printf("\n");
             break;
         }
-        line[strcspn(line, "\r\n")] = '\0';
+        sanitize_shell_line(line);
         if (line[0] == '\0') continue;
 
         if (strcmp(line, "quit") == 0 || strcmp(line, "exit") == 0 || strcmp(line, "q") == 0) {
@@ -1155,7 +1211,11 @@ static int run_interactive_shell(
         } else if (strncmp(line, "s ", 2) == 0) {
             const char *sp = line + 2;
             while (*sp && isspace((unsigned char)*sp)) sp++;
-            snprintf(scene_buf, sizeof(scene_buf), "%s", sp);
+            if (is_safe_xml_path(sp)) {
+                snprintf(scene_buf, sizeof(scene_buf), "%s", sp);
+            } else {
+                printf("Unsafe or invalid scene path\n");
+            }
         } else {
             printf("Unknown command '%s' (type 'help')\n", line);
         }
