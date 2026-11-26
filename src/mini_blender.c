@@ -33,6 +33,7 @@ typedef struct {
     int t_start, t_count;
     Vec3 center;
     float spin_y;
+    int visible;
 } ObjectSpan;
 
 typedef struct {
@@ -50,6 +51,11 @@ typedef struct {
 } Camera;
 
 typedef struct {
+    unsigned char bg_r, bg_g, bg_b;
+    float ambient;
+} World;
+
+typedef struct {
     Vec3 verts[MAX_V];
     int vcount;
     Tri tris[MAX_T];
@@ -57,6 +63,7 @@ typedef struct {
     ObjectSpan objs[MAX_OBJS];
     int obj_count;
     Camera cam;
+    World world;
     Light lights[MAX_LIGHTS];
     int light_count;
 } Scene;
@@ -165,6 +172,11 @@ static void scene_init_defaults(Scene *s) {
     s->cam.fov = 420.0f;
     s->cam.orbit_cam = 0;
 
+    s->world.bg_r = 18;
+    s->world.bg_g = 24;
+    s->world.bg_b = 34;
+    s->world.ambient = 0.16f;
+
     s->lights[0].pos.x = 6.5f;
     s->lights[0].pos.y = 9.5f;
     s->lights[0].pos.z = 7.5f;
@@ -193,7 +205,7 @@ static int can_add_geometry(const Scene *s, int add_v, int add_t) {
 static int scene_add_box(
     Scene *s, Vec3 center, Vec3 size, Vec3 rot_angles,
     unsigned char r, unsigned char g, unsigned char b,
-    float spec, float shine, float emit, float spin_y
+    float spec, float shine, float emit, float spin_y, int visible
 ) {
     if (!can_add_geometry(s, 8, 12)) return 0;
     int v_start = s->vcount;
@@ -227,7 +239,7 @@ static int scene_add_box(
         s->tris[s->tcount++] = t;
     }
 
-    ObjectSpan sp = { v_start, 8, t_start, 12, center, spin_y };
+    ObjectSpan sp = { v_start, 8, t_start, 12, center, spin_y, visible ? 1 : 0 };
     s->objs[s->obj_count++] = sp;
     return 1;
 }
@@ -235,7 +247,7 @@ static int scene_add_box(
 static int scene_add_plane(
     Scene *s, Vec3 center, float sx, float sz, Vec3 rot_angles,
     unsigned char r, unsigned char g, unsigned char b,
-    float spec, float shine, float emit, float spin_y
+    float spec, float shine, float emit, float spin_y, int visible
 ) {
     if (!can_add_geometry(s, 4, 2)) return 0;
     int v_start = s->vcount;
@@ -260,7 +272,7 @@ static int scene_add_plane(
     s->tris[s->tcount++] = t0;
     s->tris[s->tcount++] = t1;
 
-    ObjectSpan sp = { v_start, 4, t_start, 2, center, spin_y };
+    ObjectSpan sp = { v_start, 4, t_start, 2, center, spin_y, visible ? 1 : 0 };
     s->objs[s->obj_count++] = sp;
     return 1;
 }
@@ -268,7 +280,7 @@ static int scene_add_plane(
 static int scene_add_pyramid(
     Scene *s, Vec3 center, Vec3 size, Vec3 rot_angles,
     unsigned char r, unsigned char g, unsigned char b,
-    float spec, float shine, float emit, float spin_y
+    float spec, float shine, float emit, float spin_y, int visible
 ) {
     if (!can_add_geometry(s, 5, 6)) return 0;
     int v_start = s->vcount;
@@ -301,7 +313,7 @@ static int scene_add_pyramid(
         s->tris[s->tcount++] = t;
     }
 
-    ObjectSpan sp = { v_start, 5, t_start, 6, center, spin_y };
+    ObjectSpan sp = { v_start, 5, t_start, 6, center, spin_y, visible ? 1 : 0 };
     s->objs[s->obj_count++] = sp;
     return 1;
 }
@@ -310,7 +322,7 @@ static int scene_add_custom_mesh(
     Scene *s, Vec3 center, Vec3 scale, Vec3 rot_angles,
     const Vec3 *cv, int cv_count, const int *ct, int ct_count,
     unsigned char r, unsigned char g, unsigned char b,
-    float spec, float shine, float emit, float spin_y
+    float spec, float shine, float emit, float spin_y, int visible
 ) {
     if (cv_count <= 0 || ct_count <= 0) return 0;
     if (!can_add_geometry(s, cv_count, ct_count)) return 0;
@@ -341,7 +353,7 @@ static int scene_add_custom_mesh(
         return 0;
     }
 
-    ObjectSpan sp = { v_start, cv_count, t_start, added_t, center, spin_y };
+    ObjectSpan sp = { v_start, cv_count, t_start, added_t, center, spin_y, visible ? 1 : 0 };
     s->objs[s->obj_count++] = sp;
     return 1;
 }
@@ -349,7 +361,7 @@ static int scene_add_custom_mesh(
 static void scene_add_grid_boxes(
     Scene *s, Vec3 origin, Vec3 box_sz, int rows, int cols, float step,
     unsigned char r, unsigned char g, unsigned char b,
-    float spec, float shine, float emit, float spin_y
+    float spec, float shine, float emit, float spin_y, int visible
 ) {
     if (rows < 1) rows = 1;
     if (cols < 1) cols = 1;
@@ -372,7 +384,7 @@ static void scene_add_grid_boxes(
             unsigned char cr = clamp_u8((float)r + (float)((cx * 13 + rz * 7) % 35) - 15.0f);
             unsigned char cg = clamp_u8((float)g + (float)((cx * 5 + rz * 19) % 35) - 15.0f);
             unsigned char cb = clamp_u8((float)b + (float)((cx * 11 + rz * 17) % 35) - 15.0f);
-            if (!scene_add_box(s, c, sz, rot, cr, cg, cb, spec, shine, emit, spin_y)) {
+            if (!scene_add_box(s, c, sz, rot, cr, cg, cb, spec, shine, emit, spin_y, visible)) {
                 return;
             }
         }
@@ -385,11 +397,11 @@ static void build_default_stress_scene(Scene *s) {
 
     Vec3 zero_r = { 0.0f, 0.0f, 0.0f };
     Vec3 ground_c = { 0.0f, -1.3f, 0.0f };
-    scene_add_plane(s, ground_c, 20.0f, 20.0f, zero_r, 68, 78, 92, 0.10f, 20.0f, 0.0f, 0.0f);
+    scene_add_plane(s, ground_c, 20.0f, 20.0f, zero_r, 68, 78, 92, 0.10f, 20.0f, 0.0f, 0.0f, 1);
 
     Vec3 grid_o = { 0.0f, -1.3f, 0.0f };
     Vec3 box_sz = { 0.56f, 0.85f, 0.56f };
-    scene_add_grid_boxes(s, grid_o, box_sz, 14, 14, 1.0f, 110, 145, 185, 0.32f, 24.0f, 0.0f, 0.0f);
+    scene_add_grid_boxes(s, grid_o, box_sz, 14, 14, 1.0f, 110, 145, 185, 0.32f, 24.0f, 0.0f, 0.0f, 1);
 }
 
 static float extract_attr_float(const char *line, const char *key, float def_val) {
@@ -456,6 +468,7 @@ static int load_scene_xml(Scene *s, const char *path) {
     float obj_shine = 24.0f;
     float obj_emit = 0.0f;
     float obj_spin = 0.0f;
+    int obj_visible = 1;
     int obj_rows = 10;
     int obj_cols = 10;
     float obj_step = 1.0f;
@@ -473,7 +486,12 @@ static int load_scene_xml(Scene *s, const char *path) {
 
     char line[1024];
     while (fgets(line, sizeof(line), f) != NULL) {
-        if (strstr(line, "<camera") != NULL) {
+        if (strstr(line, "<world") != NULL) {
+            s->world.bg_r = clamp_u8((float)extract_attr_int(line, "r", s->world.bg_r));
+            s->world.bg_g = clamp_u8((float)extract_attr_int(line, "g", s->world.bg_g));
+            s->world.bg_b = clamp_u8((float)extract_attr_int(line, "b", s->world.bg_b));
+            s->world.ambient = clamp_range(extract_attr_float(line, "ambient", s->world.ambient), 0.0f, 1.0f, s->world.ambient);
+        } else if (strstr(line, "<camera") != NULL) {
             s->cam.pos.x = extract_attr_float(line, "x", s->cam.pos.x);
             s->cam.pos.y = extract_attr_float(line, "y", s->cam.pos.y);
             s->cam.pos.z = extract_attr_float(line, "z", s->cam.pos.z);
@@ -519,6 +537,7 @@ static int load_scene_xml(Scene *s, const char *path) {
             obj_shine = clamp_range(extract_attr_float(line, "shine", 24.0f), 2.0f, 256.0f, 24.0f);
             obj_emit = clamp_range(extract_attr_float(line, "emit", 0.0f), 0.0f, 1.0f, 0.0f);
             obj_spin = clamp_range(extract_attr_float(line, "spin_y", 0.0f), -10.0f, 10.0f, 0.0f);
+            obj_visible = extract_attr_int(line, "visible", 1) ? 1 : 0;
             obj_rows = (int)clamp_range((float)extract_attr_int(line, "rows", 10), 1.0f, 40.0f, 10.0f);
             obj_cols = (int)clamp_range((float)extract_attr_int(line, "cols", 10), 1.0f, 40.0f, 10.0f);
             obj_step = clamp_range(extract_attr_float(line, "step", 1.0f), 0.1f, 20.0f, 1.0f);
@@ -530,13 +549,13 @@ static int load_scene_xml(Scene *s, const char *path) {
             } else {
                 in_mesh_obj = 0;
                 if (strcmp(obj_type, "plane") == 0) {
-                    scene_add_plane(s, obj_c, obj_s.x, obj_s.z, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin);
+                    scene_add_plane(s, obj_c, obj_s.x, obj_s.z, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible);
                 } else if (strcmp(obj_type, "pyramid") == 0) {
-                    scene_add_pyramid(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin);
+                    scene_add_pyramid(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible);
                 } else if (strcmp(obj_type, "grid") == 0) {
-                    scene_add_grid_boxes(s, obj_c, obj_s, obj_rows, obj_cols, obj_step, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin);
+                    scene_add_grid_boxes(s, obj_c, obj_s, obj_rows, obj_cols, obj_step, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible);
                 } else {
-                    scene_add_box(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin);
+                    scene_add_box(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible);
                 }
             }
         } else if (in_mesh_obj && strstr(line, "<v") != NULL) {
@@ -556,7 +575,7 @@ static int load_scene_xml(Scene *s, const char *path) {
         } else if (in_mesh_obj && strstr(line, "</object>") != NULL) {
             scene_add_custom_mesh(
                 s, obj_c, obj_s, obj_r, cv, cv_count, ct, ct_count,
-                obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin
+                obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible
             );
             in_mesh_obj = 0;
             cv_count = 0;
@@ -593,7 +612,8 @@ static void raster_tri(
     Vec3 p0, Vec3 p1, Vec3 p2,
     const Camera *cam,
     const Tri *tri,
-    const Light *lights, int light_count
+    const Light *lights, int light_count,
+    float ambient
 ) {
     float z0 = p0.z + cam->pos.z;
     float z1 = p1.z + cam->pos.z;
@@ -608,9 +628,9 @@ static void raster_tri(
         (p0.z + p1.z + p2.z) / 3.0f
     };
 
-    float acc_r = 0.16f + tri->emit;
-    float acc_g = 0.17f + tri->emit;
-    float acc_b = 0.19f + tri->emit;
+    float acc_r = ambient + tri->emit;
+    float acc_g = ambient + tri->emit;
+    float acc_b = ambient + tri->emit;
 
     for (int i = 0; i < light_count; i++) {
         Vec3 ldir = v3_norm(v3_sub(lights[i].pos, centroid));
@@ -759,7 +779,7 @@ static int render_frame(
     Vec3 grab_offset, Vec3 rot_offset, float scene_scale,
     const char *out_path
 ) {
-    clear_buffers(18, 24, 34);
+    clear_buffers(s->world.bg_r, s->world.bg_g, s->world.bg_b);
 
     Camera frame_cam = s->cam;
     frame_cam.pos = v3_add(frame_cam.pos, grab_offset);
@@ -782,6 +802,7 @@ static int render_frame(
 
     for (int oi = 0; oi < s->obj_count; oi++) {
         ObjectSpan sp = s->objs[oi];
+        if (!sp.visible) continue;
         if (fabsf(sp.spin_y) > 1e-5f) {
             Vec3 scaled_c = v3_scale(sp.center, scene_scale);
             float angle = phase * sp.spin_y;
@@ -798,15 +819,21 @@ static int render_frame(
     view_cam.pos.x = 0.0f;
     view_cam.pos.y = 0.0f;
 
-    for (int i = 0; i < s->tcount; i++) {
-        Tri t = s->tris[i];
-        if (t.v0 < 0 || t.v0 >= s->vcount || t.v1 < 0 || t.v1 >= s->vcount || t.v2 < 0 || t.v2 >= s->vcount) {
-            continue;
+    for (int oi = 0; oi < s->obj_count; oi++) {
+        ObjectSpan sp = s->objs[oi];
+        if (!sp.visible) continue;
+        int t_end = sp.t_start + sp.t_count;
+        if (t_end > s->tcount) t_end = s->tcount;
+        for (int i = sp.t_start; i < t_end; i++) {
+            Tri t = s->tris[i];
+            if (t.v0 < 0 || t.v0 >= s->vcount || t.v1 < 0 || t.v1 >= s->vcount || t.v2 < 0 || t.v2 >= s->vcount) {
+                continue;
+            }
+            Vec3 p0 = rot_xyz(v3_add(anim_v[t.v0], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
+            Vec3 p1 = rot_xyz(v3_add(anim_v[t.v1], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
+            Vec3 p2 = rot_xyz(v3_add(anim_v[t.v2], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
+            raster_tri(p0, p1, p2, &view_cam, &t, s->lights, s->light_count, s->world.ambient);
         }
-        Vec3 p0 = rot_xyz(v3_add(anim_v[t.v0], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
-        Vec3 p1 = rot_xyz(v3_add(anim_v[t.v1], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
-        Vec3 p2 = rot_xyz(v3_add(anim_v[t.v2], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
-        raster_tri(p0, p1, p2, &view_cam, &t, s->lights, s->light_count);
     }
 
     free(anim_v);
@@ -881,14 +908,16 @@ static int run_batch(
 
 static void print_shell_help(void) {
     printf(
-        "Interactive Shell Commands:\n"
-        "  g <x,y,z>      Set grab/move offset\n"
-        "  r <rx,ry,rz>   Set rotate offset\n"
-        "  z <fov>        Set FOV zoom\n"
-        "  m <scale>      Set scene scale\n"
-        "  n <count>      Set frame count\n"
-        "  f <start>      Set start frame\n"
-        "  s <scene.xml>  Set scene XML path\n"
+        "Interactive Shell Commands (Blender-familiar):\n"
+        "  g <x,y,z>      Grab / move offset\n"
+        "  r <rx,ry,rz>   Rotate offset\n"
+        "  z <fov>        Zoom / FOV\n"
+        "  m <scale>      Scale multiplier\n"
+        "  reset | alt    Reset g, r, z, m\n"
+        "  1 | 3 | 7 | 0  Quick view presets (front/side/top/cam)\n"
+        "  n <count>      Frame count\n"
+        "  f <start>      Start frame\n"
+        "  s <scene.xml>  Scene XML path\n"
         "  p              Toggle terminal preview\n"
         "  render | run   Run batch render\n"
         "  status         Print current settings\n"
@@ -924,6 +953,26 @@ static int run_interactive_shell(
             break;
         } else if (strcmp(line, "help") == 0 || strcmp(line, "h") == 0) {
             print_shell_help();
+        } else if (strcmp(line, "reset") == 0 || strcmp(line, "alt") == 0) {
+            grab_offset.x = 0.0f; grab_offset.y = 0.0f; grab_offset.z = 0.0f;
+            rot_offset.x = 0.0f; rot_offset.y = 0.0f; rot_offset.z = 0.0f;
+            custom_fov = -1.0f;
+            scene_scale = 1.0f;
+            printf("Reset G/R/Z/M to defaults.\n");
+        } else if (strcmp(line, "1") == 0) {
+            rot_offset.x = 0.0f; rot_offset.y = 0.0f; rot_offset.z = 0.0f;
+            printf("View preset: 1 (Front)\n");
+        } else if (strcmp(line, "3") == 0) {
+            rot_offset.x = 0.0f; rot_offset.y = 1.5707963f; rot_offset.z = 0.0f;
+            printf("View preset: 3 (Side)\n");
+        } else if (strcmp(line, "7") == 0) {
+            rot_offset.x = -1.25f; rot_offset.y = 0.0f; rot_offset.z = 0.0f;
+            printf("View preset: 7 (Top-ish)\n");
+        } else if (strcmp(line, "0") == 0) {
+            grab_offset.x = 0.0f; grab_offset.y = 0.0f; grab_offset.z = 0.0f;
+            rot_offset.x = 0.0f; rot_offset.y = 0.0f; rot_offset.z = 0.0f;
+            custom_fov = -1.0f;
+            printf("View preset: 0 (Camera default)\n");
         } else if (strcmp(line, "p") == 0) {
             preview = !preview;
             printf("Terminal preview: %s\n", preview ? "ON" : "OFF");
