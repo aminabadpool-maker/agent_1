@@ -1,16 +1,27 @@
-CC ?= gcc
-CFLAGS ?= -std=c11 -O3 -Wall -Wextra -Wpedantic
+CC      ?= cc
+CFLAGS  ?= -std=c11 -O3 -Wall -Wextra -Wpedantic
 LDFLAGS ?= -lm
 
-all: agent_1 mini_blender
+UNAME_M := $(shell uname -m)
+ifneq (,$(filter aarch64 arm64 armv7l armv8l,$(UNAME_M)))
+    CFLAGS += -mtune=native
+endif
 
-agent_1: src/main.c
-	$(CC) $(CFLAGS) src/main.c -o agent_1
+TARGET  := mini_blender
+SRC     := src/mini_blender.c
 
-mini_blender: src/mini_blender.c
-	$(CC) $(CFLAGS) src/mini_blender.c $(LDFLAGS) -o mini_blender
+.PHONY: all clean run stress
+
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+
+run: $(TARGET)
+	./$(TARGET) 0 12 24 renders
+
+stress: $(TARGET)
+	./$(TARGET) 0 24 48 renders scenes/sample_env.xml | tee logs/stress_make.log
 
 clean:
-	rm -f agent_1 mini_blender *.o *.ppm
-
-.PHONY: all clean
+	rm -f $(TARGET)
