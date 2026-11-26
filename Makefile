@@ -127,3 +127,15 @@ safe-run:
 
 clean:
 	rm -f $(TARGETS)
+
+.PHONY: guard-check
+guard-check:
+	$(CC) -std=c11 -O2 -Wall -Wextra -I. -I./tools tools/pi_guard.c -o tools/pi_guard
+	@echo "[CHECK 1] 20 jobs 4K pass expected"
+	./tools/pi_guard 3840 2160 300 2048 8 256 512 4096 75.0 ./out 20
+	@echo "[CHECK 2] 20 jobs 4K block expected"
+	@if ./tools/pi_guard 3840 2160 300 2048 8 256 3000 4096 75.0 ./out 20; then \
+		echo "ERROR: expected guard block for high disk requirement" >&2; \
+		exit 1; \
+	fi
+	@echo "[GUARD-CHECK PASS]"
