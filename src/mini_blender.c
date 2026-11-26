@@ -717,14 +717,33 @@ static int save_ppm(const char *path) {
 static void print_terminal_preview(void) {
     const int cols = 80;
     const int rows = 24;
+    int step_x = W / cols;
+    int step_y = H / rows;
+    if (step_x < 1) step_x = 1;
+    if (step_y < 1) step_y = 1;
+
     printf("\n--- Terminal Truecolor Preview (%dx%d) ---\n", cols, rows);
     for (int ty = 0; ty < rows; ty++) {
-        int sy = (ty * H) / rows;
+        int y0 = (ty * H) / rows;
+        int y1 = y0 + step_y;
+        if (y1 > H) y1 = H;
         for (int tx = 0; tx < cols; tx++) {
-            int sx = (tx * W) / cols;
-            unsigned char r = fb[sy][sx][0];
-            unsigned char g = fb[sy][sx][1];
-            unsigned char b = fb[sy][sx][2];
+            int x0 = (tx * W) / cols;
+            int x1 = x0 + step_x;
+            if (x1 > W) x1 = W;
+
+            unsigned long sum_r = 0, sum_g = 0, sum_b = 0, cnt = 0;
+            for (int y = y0; y < y1; y++) {
+                for (int x = x0; x < x1; x++) {
+                    sum_r += fb[y][x][0];
+                    sum_g += fb[y][x][1];
+                    sum_b += fb[y][x][2];
+                    cnt++;
+                }
+            }
+            unsigned char r = (unsigned char)(cnt ? (sum_r / cnt) : 0);
+            unsigned char g = (unsigned char)(cnt ? (sum_g / cnt) : 0);
+            unsigned char b = (unsigned char)(cnt ? (sum_b / cnt) : 0);
             printf("\x1b[48;2;%u;%u;%um ", r, g, b);
         }
         printf("\x1b[0m\n");
