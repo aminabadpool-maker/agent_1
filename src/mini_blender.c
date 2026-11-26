@@ -714,6 +714,7 @@ static int save_ppm(const char *path) {
     return 1;
 }
 
+#ifndef MB_NO_PREVIEW
 static void print_terminal_preview(void) {
     const int cols = 80;
     const int rows = 24;
@@ -751,6 +752,7 @@ static void print_terminal_preview(void) {
     }
     printf("------------------------------------------\n");
 }
+#endif
 
 static int render_frame(
     const Scene *s, float phase,
