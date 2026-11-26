@@ -39,4 +39,10 @@ echo "PASS: PPM output files verified"
 
 echo "[5/5] Testing headless Pi binary (mini_blender_pi) heavy stress batch..."
 ./mini_blender_pi -f 210 -n 60 -c 60 -o renders -s scenes/heavy_stress_scene.xml -q | tee logs/test_pi_stress_v7.log
+
+echo "[6/6] Testing server-safe runner script (mb_server_run.sh)..."
+./mb_server_run.sh 10 scenes/blender_like_scene.xml test_guard_check >/dev/null
+rm -rf renders/test_guard_check logs/test_guard_check.log
+echo "PASS: Server guard runner test"
+
 echo "ALL TESTS PASSED."
