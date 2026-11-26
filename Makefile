@@ -12,7 +12,7 @@ RAM ?= 1001
 CORES ?= 4
 BUDGET ?= 500
 MAX_THREADS ?= 4
-MAX_BATCH ?= 128
+MAX_BATCH ?= 256
 MIN_RAM_MB ?= 512
 MIN_DISK_MB ?= 1024
 MAX_TEMP_C ?= 75.0
@@ -21,7 +21,7 @@ TELEMETRY_LOG ?= renders/pi_run/telemetry.jsonl
 
 TARGETS := tools/pi_budget tools/pi_lib_demo tools/pi_telemetry tools/pi_guard tools/pi_stress
 
-.PHONY: all check health plan telemetry log-summary guard stress clean
+.PHONY: all check health plan telemetry log-summary guard stress safe-run clean
 
 all: $(TARGETS)
 
@@ -121,6 +121,9 @@ guard: tools/pi_guard
 
 stress: tools/pi_stress
 	./tools/pi_stress
+
+safe-run:
+	@$(MAKE) guard && $(MAKE) telemetry && $(MAKE) plan
 
 clean:
 	rm -f $(TARGETS)
