@@ -1,0 +1,24 @@
+<scene name="pi_mega_stress_v8">
+  <world r="14" g="20" b="30" ambient="0.16" />
+  <camera x="0.0" y="3.2" z="18.0" yaw="0.0" pitch="-0.22" fov="450.0" orbit_cam="1" />
+  <light x="9.0" y="13.0" z="9.0" r="255" g="242" b="218" intensity="0.90" />
+  <light x="-9.0" y="7.0" z="-7.0" r="115" g="170" b="250" intensity="0.45" />
+  <light x="0.0" y="9.0" z="-12.0" r="255" g="185" b="125" intensity="0.30" />
+
+  <object name="floor_slab" type="plane" x="0.0" y="-1.5" z="0.0" sx="32.0" sz="32.0" rx="0.0" ry="0.0" rz="0.0" r="58" g="68" b="82" spec="0.12" shine="16.0" emit="0.0" spin_y="0.0" visible="1" />
+  <object name="dense_tower_field" type="grid" x="0.0" y="-1.5" z="0.0" sx="0.64" sy="1.05" sz="0.64" rows="24" cols="24" step="1.0" r="125" g="162" b="202" spec="0.38" shine="28.0" emit="0.02" spin_y="0.20" visible="1" />
+  <object name="center_spire" type="pyramid" x="0.0" y="0.4" z="0.0" sx="2.4" sy="3.4" sz="2.4" rx="0.0" ry="0.4" rz="0.0" r="245" g="190" b="65" spec="0.72" shine="42.0" emit="0.16" spin_y="1.1" visible="1" />
+  <object name="side_mesh" type="mesh" x="-4.5" y="1.4" z="3.0" sx="1.8" sy="2.0" sz="1.8" rx="0.15" ry="0.5" rz="0.0" r="105" g="215" b="150" spec="0.55" shine="32.0" emit="0.05" spin_y="-0.9" visible="1">
+    <v x="-0.5" y="-0.5" z="-0.5" />
+    <v x="0.5" y="-0.5" z="-0.5" />
+    <v x="0.5" y="-0.5" z="0.5" />
+    <v x="-0.5" y="-0.5" z="0.5" />
+    <v x="0.0" y="0.7" z="0.0" />
+    <tri v0="0" v1="2" v2="1" />
+    <tri v0="0" v1="3" v2="2" />
+    <tri v0="0" v1="1" v2="4" />
+    <tri v0="1" v1="2" v2="4" />
+    <tri v0="2" v1="3" v2="4" />
+    <tri v0="3" v1="0" v2="4" />
+  </object>
+</scene>

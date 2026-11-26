@@ -14,3 +14,8 @@ checkpoint.state
 # Rendered frames & output videos (keep directory structure if needed)
 renders/*/*.ppm
 renders/*/*.mp4
+
+# Standalone stray binaries & raw PPM frames
+agent_1
+*.ppm
+renders/

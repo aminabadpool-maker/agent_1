@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
+mkdir -p scenes renders logs
+
+mode="plan"
+start_frame=0
+total_frames=250
+cycle=60
+scene="scenes/kungfu_temple_blocking.xml"
+out_base="renders"
+extra_args="-q"
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --plan) mode="plan"; shift ;;
+        --run) mode="run"; shift ;;
+        -f) start_frame="$2"; shift 2 ;;
+        -t) total_frames="$2"; shift 2 ;;
+        -c) cycle="$2"; shift 2 ;;
+        -s) scene="$2"; shift 2 ;;
+        -o) out_base="$2"; shift 2 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+if ! [[ "$start_frame" =~ ^[0-9]+$ ]] || ! [[ "$total_frames" =~ ^[0-9]+$ ]] || [ "$total_frames" -lt 5 ]; then
+    echo "Error: start_frame must be >= 0 and total_frames must be >= 5" >&2
+    exit 1
+fi
+
+if [ "$mode" = "run" ] && [ ! -x "./mini_blender_pi" ]; then
+    if [ -f "Makefile" ] && grep -q '^pi:' Makefile; then
+        make pi
+    else
+        cc -std=c11 -O3 -Wall -Wextra -Wpedantic -DMB_NO_PREVIEW src/mini_blender.c -o mini_blender_pi -lm
+    fi
+fi
+
+base_chunk=$((total_frames / 5))
+rem=$((total_frames % 5))
+cur_start="$start_frame"
+t_all_start=$(date +%s)
+total_ppm=0
+
+for idx in 1 2 3 4 5; do
+    chunk_n="$base_chunk"
+    if [ "$idx" -le "$rem" ]; then
+        chunk_n=$((chunk_n + 1))
+    fi
+    chunk_end=$((cur_start + chunk_n - 1))
+    node_tag=$(printf "node_%02d" "$idx")
+    node_out="${out_base}/${node_tag}"
+    node_log="logs/${node_tag}.log"
+    cmd="./mini_blender_pi -f ${cur_start} -n ${chunk_n} -c ${cycle} -o ${node_out} -s ${scene} ${extra_args}"
+
+    echo "[Node ${idx}/5 -> ${node_tag}] frames ${cur_start}..${chunk_end} (count=${chunk_n}) | out=${node_out}"
+    echo "  CMD: ${cmd}"
+
+    if [ "$mode" = "run" ]; then
+        mkdir -p "$node_out"
+        t_n0=$(date +%s)
+        {
+            echo "=== ${node_tag} START: $(date) ==="
+            eval "$cmd"
+            n_files=$(find "$node_out" -maxdepth 1 -name 'frame_*.ppm' | wc -l)
+            n_size=$(du -sh "$node_out" | awk '{print $1}')
+            t_n1=$(date +%s)
+            echo "Node ${node_tag} done in $((t_n1 - t_n0))s | PPMs: ${n_files} | Size: ${n_size}"
+            echo "=== ${node_tag} END ==="
+        } | tee "$node_log"
+        got_ppm=$(find "$node_out" -maxdepth 1 -name 'frame_*.ppm' | wc -l)
+        total_ppm=$((total_ppm + got_ppm))
+    fi
+
+    cur_start=$((cur_start + chunk_n))
+done
+
+t_all_end=$(date +%s)
+echo "=== SPLIT SUMMARY ==="
+if [ "$mode" = "run" ]; then
+    echo "Total elapsed: $((t_all_end - t_all_start))s | Total PPM frames generated across 5 folders: ${total_ppm}"
+else
+    echo "Generated 5 node commands. Run with --run to execute locally across ${out_base}/node_01..node_05."
+fi
