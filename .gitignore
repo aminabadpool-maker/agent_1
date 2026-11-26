@@ -4,3 +4,4 @@ mini_blender
 *.ppm
 *.log
 renders/
+logs/

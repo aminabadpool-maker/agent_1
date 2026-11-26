@@ -4,11 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
-#define W 480
-#define H 320
-#define MAX_V 4096
-#define MAX_T 8192
+#define W 640
+#define H 480
+#define MAX_V 16384
+#define MAX_T 32768
 
 typedef struct {
     float x, y, z;
@@ -28,6 +29,12 @@ typedef struct {
 
 static unsigned char fb[H][W][3];
 static float zbuf[H][W];
+
+static double now_sec(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
 
 static Vec3 v3_sub(Vec3 a, Vec3 b) {
     Vec3 r = { a.x - b.x, a.y - b.y, a.z - b.z };
@@ -109,25 +116,28 @@ static void scene_add_box(Scene *s, Vec3 center, Vec3 size, float yaw, unsigned 
     }
 }
 
-static void build_env_scene(Scene *s) {
+static void build_stress_scene(Scene *s) {
     s->vcount = 0;
     s->tcount = 0;
 
-    Vec3 ground_c = { 0.0f, -1.2f, 0.0f };
-    Vec3 ground_s = { 12.0f, 0.25f, 12.0f };
-    scene_add_box(s, ground_c, ground_s, 0.0f, 75, 85, 98);
+    Vec3 ground_c = { 0.0f, -1.3f, 0.0f };
+    Vec3 ground_s = { 18.0f, 0.25f, 18.0f };
+    scene_add_box(s, ground_c, ground_s, 0.0f, 70, 82, 96);
 
-    Vec3 main_box_c = { -1.1f, -0.35f, -0.4f };
-    Vec3 main_box_s = { 1.4f, 1.4f, 1.4f };
-    scene_add_box(s, main_box_c, main_box_s, 0.35f, 80, 210, 130);
-
-    Vec3 tower_c = { 1.5f, 0.1f, 0.6f };
-    Vec3 tower_s = { 1.0f, 2.3f, 1.0f };
-    scene_add_box(s, tower_c, tower_s, -0.25f, 220, 145, 70);
-
-    Vec3 prop_c = { 0.3f, -0.75f, 1.6f };
-    Vec3 prop_s = { 0.8f, 0.8f, 0.8f };
-    scene_add_box(s, prop_c, prop_s, 0.65f, 95, 165, 235);
+    int grid = 12;
+    for (int gx = 0; gx < grid; gx++) {
+        for (int gz = 0; gz < grid; gz++) {
+            float fx = -5.5f + (float)gx * 1.0f;
+            float fz = -5.5f + (float)gz * 1.0f;
+            float h = 0.45f + 0.35f * fabsf(sinf((float)gx * 0.7f + (float)gz * 0.5f));
+            Vec3 c = { fx, -1.17f + h * 0.5f, fz };
+            Vec3 sz = { 0.55f, h, 0.55f };
+            unsigned char r = (unsigned char)(70 + ((gx * 17 + gz * 29) % 150));
+            unsigned char g = (unsigned char)(85 + ((gx * 31 + gz * 13) % 140));
+            unsigned char b = (unsigned char)(100 + ((gx * 11 + gz * 23) % 130));
+            scene_add_box(s, c, sz, 0.15f * (float)((gx + gz) % 6), r, g, b);
+        }
+    }
 }
 
 static void clear_buffers(unsigned char r, unsigned char g, unsigned char b) {
@@ -224,7 +234,7 @@ static void render_frame(const Scene *s, float cam_yaw, float cam_pitch, float c
     clear_buffers(20, 26, 36);
     Vec3 raw_light = { 0.45f, 0.75f, 0.55f };
     Vec3 light_dir = v3_norm(raw_light);
-    float fov = 340.0f;
+    float fov = 420.0f;
 
     for (int i = 0; i < s->tcount; i++) {
         Tri t = s->tris[i];
@@ -238,21 +248,32 @@ static void render_frame(const Scene *s, float cam_yaw, float cam_pitch, float c
 }
 
 int main(int argc, char **argv) {
-    int frames = (argc > 1) ? atoi(argv[1]) : 1;
-    if (frames < 1) frames = 1;
-    const char *out_dir = (argc > 2) ? argv[2] : "renders";
+    int start_frame = (argc > 1) ? atoi(argv[1]) : 0;
+    int count = (argc > 2) ? atoi(argv[2]) : 12;
+    int total_cycle = (argc > 3) ? atoi(argv[3]) : 24;
+    const char *out_dir = (argc > 4) ? argv[4] : "renders";
+
+    if (start_frame < 0) start_frame = 0;
+    if (count < 1) count = 1;
+    if (total_cycle < 1) total_cycle = 24;
 
     Scene s;
-    build_env_scene(&s);
+    build_stress_scene(&s);
+    printf("Scene ready: %d verts, %d tris\n", s.vcount, s.tcount);
 
-    for (int f = 0; f < frames; f++) {
-        float t = (frames == 1) ? 0.45f : ((float)f / (float)frames) * 6.2831853f;
+    double batch_start = now_sec();
+    for (int i = 0; i < count; i++) {
+        int f = start_frame + i;
+        double f_start = now_sec();
+        float t = ((float)(f % total_cycle) / (float)total_cycle) * 6.2831853f;
         char path[256];
-        snprintf(path, sizeof(path), "%s/frame_%03d.ppm", out_dir, f);
-        render_frame(&s, t, 0.28f, 6.8f, path);
-        printf("Rendered %s (frame %d/%d)\n", path, f + 1, frames);
+        snprintf(path, sizeof(path), "%s/frame_%04d.ppm", out_dir, f);
+        render_frame(&s, t, 0.34f, 11.5f, path);
+        double dt = now_sec() - f_start;
+        printf("Frame %04d -> %s (%.3fs)\n", f, path, dt);
         fflush(stdout);
     }
 
+    printf("Batch finished in %.3fs\n", now_sec() - batch_start);
     return 0;
 }
