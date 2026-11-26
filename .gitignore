@@ -1,8 +1,16 @@
-agent_1
+# Build artifacts & binaries
+*.o
+*.a
+*.so
+*.dylib
 mini_blender
 mini_blender_pi
-*.o
-*.ppm
+
+# Temporary test directories & logs
+.tmp_*
 *.log
-renders/
-logs/
+checkpoint.state
+
+# Rendered frames & output videos (keep directory structure if needed)
+renders/*/*.ppm
+renders/*/*.mp4

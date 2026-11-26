@@ -46,3 +46,12 @@ fi
     ./mini_blender_pi -f 0 -n "$frames" -c 60 -o "$out_dir" -s "$scene" --resume -q
     echo "=== SERVER JOB END: ${safe_tag} | $(date) ==="
 } | tee "$log_file"
+
+if [ -x ./ppm_to_mp4.sh ] && command -v ffmpeg >/dev/null 2>&1; then
+  for d in renders/*/; do
+    [ -d "$d" ] || continue
+    if ls "$d"/frame_*.ppm >/dev/null 2>&1; then
+      ./ppm_to_mp4.sh -i "${d%/}" -o "${d%/}/output.mp4" -f 24 --crf 20 >/dev/null 2>&1 || true
+    fi
+  done
+fi
