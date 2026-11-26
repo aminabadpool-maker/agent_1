@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include <ctype.h>
 #include <errno.h>
 #include <float.h>
 #include <math.h>
@@ -15,6 +16,7 @@
 #define MAX_LIGHTS 8
 #define MAX_CUSTOM_V 8192
 #define MAX_CUSTOM_T 16384
+#define MAX_TAG_BUF 4096
 
 typedef struct {
     float x, y, z;
@@ -93,11 +95,37 @@ static float clamp_range(float v, float lo, float hi, float def_val) {
     return v;
 }
 
+static int parse_float_safe(const char *s, float *out) {
+    if (!s || !out) return 0;
+    while (*s && isspace((unsigned char)*s)) s++;
+    if (*s == '\0') return 0;
+    errno = 0;
+    char *endptr = NULL;
+    float val = strtof(s, &endptr);
+    if (s == endptr || errno == ERANGE || !isfinite(val)) return 0;
+    *out = val;
+    return 1;
+}
+
+static int parse_int_safe(const char *s, int *out) {
+    if (!s || !out) return 0;
+    while (*s && isspace((unsigned char)*s)) s++;
+    if (*s == '\0') return 0;
+    errno = 0;
+    char *endptr = NULL;
+    long val = strtol(s, &endptr, 10);
+    if (s == endptr || errno == ERANGE) return 0;
+    if (val < -100000000L || val > 100000000L) return 0;
+    *out = (int)val;
+    return 1;
+}
+
 static int parse_vec3_csv(const char *s, Vec3 *out) {
     if (!s || !out) return 0;
     float a = 0.0f, b = 0.0f, c = 0.0f;
-    if (sscanf(s, "%f,%f,%f", &a, &b, &c) != 3) return 0;
+    if (sscanf(s, " %f , %f , %f ", &a, &b, &c) != 3) return 0;
     if (!isfinite(a) || !isfinite(b) || !isfinite(c)) return 0;
+    if (fabsf(a) > 1e6f || fabsf(b) > 1e6f || fabsf(c) > 1e6f) return 0;
     out->x = a;
     out->y = b;
     out->z = c;
@@ -197,7 +225,8 @@ static void scene_init_defaults(Scene *s) {
 }
 
 static int can_add_geometry(const Scene *s, int add_v, int add_t) {
-    if (!s || s->obj_count >= MAX_OBJS) return 0;
+    if (!s || add_v <= 0 || add_t <= 0) return 0;
+    if (s->obj_count >= MAX_OBJS) return 0;
     if (s->vcount + add_v > MAX_V || s->tcount + add_t > MAX_T) return 0;
     return 1;
 }
@@ -324,7 +353,7 @@ static int scene_add_custom_mesh(
     unsigned char r, unsigned char g, unsigned char b,
     float spec, float shine, float emit, float spin_y, int visible
 ) {
-    if (cv_count <= 0 || ct_count <= 0) return 0;
+    if (!cv || !ct || cv_count <= 0 || ct_count <= 0) return 0;
     if (!can_add_geometry(s, cv_count, ct_count)) return 0;
 
     int v_start = s->vcount;
@@ -341,6 +370,9 @@ static int scene_add_custom_mesh(
         int b_idx = ct[i * 3 + 1];
         int c_idx = ct[i * 3 + 2];
         if (a < 0 || a >= cv_count || b_idx < 0 || b_idx >= cv_count || c_idx < 0 || c_idx >= cv_count) {
+            continue;
+        }
+        if (a == b_idx || b_idx == c_idx || a == c_idx) {
             continue;
         }
         Tri t = { v_start + a, v_start + b_idx, v_start + c_idx, r, g, b, spec, shine, emit };
@@ -404,48 +436,212 @@ static void build_default_stress_scene(Scene *s) {
     scene_add_grid_boxes(s, grid_o, box_sz, 14, 14, 1.0f, 110, 145, 185, 0.32f, 24.0f, 0.0f, 0.0f, 1);
 }
 
-static float extract_attr_float(const char *line, const char *key, float def_val) {
-    char pat[64];
-    int n = snprintf(pat, sizeof(pat), "%s=\"", key);
-    if (n <= 0 || (size_t)n >= sizeof(pat)) return def_val;
-    const char *p = strstr(line, pat);
-    if (!p) return def_val;
-    p += (size_t)n;
-    errno = 0;
-    char *endptr = NULL;
-    float val = strtof(p, &endptr);
-    if (p == endptr || errno != 0 || !isfinite(val)) return def_val;
-    return val;
+static const char *find_attr_value(const char *tag, const char *key, char *val_buf, size_t val_sz) {
+    if (!tag || !key || !val_buf || val_sz == 0) return NULL;
+    size_t klen = strlen(key);
+    const char *p = tag;
+    while ((p = strstr(p, key)) != NULL) {
+        int left_ok = (p == tag) || isspace((unsigned char)p[-1]) || p[-1] == '<';
+        const char *after_key = p + klen;
+        while (*after_key && isspace((unsigned char)*after_key)) after_key++;
+        if (left_ok && *after_key == '=') {
+            const char *q = after_key + 1;
+            while (*q && isspace((unsigned char)*q)) q++;
+            char quote = *q;
+            if (quote == '"' || quote == '\'') {
+                q++;
+                const char *endq = strchr(q, quote);
+                if (!endq) return NULL;
+                size_t len = (size_t)(endq - q);
+                if (len >= val_sz) len = val_sz - 1;
+                memcpy(val_buf, q, len);
+                val_buf[len] = '\0';
+                return val_buf;
+            }
+        }
+        p += klen;
+    }
+    return NULL;
 }
 
-static int extract_attr_int(const char *line, const char *key, int def_val) {
-    char pat[64];
-    int n = snprintf(pat, sizeof(pat), "%s=\"", key);
-    if (n <= 0 || (size_t)n >= sizeof(pat)) return def_val;
-    const char *p = strstr(line, pat);
-    if (!p) return def_val;
-    p += (size_t)n;
-    errno = 0;
-    char *endptr = NULL;
-    long val = strtol(p, &endptr, 10);
-    if (p == endptr || errno != 0) return def_val;
-    return (int)val;
+static float attr_float(const char *tag, const char *key, float def_val) {
+    char buf[128];
+    if (!find_attr_value(tag, key, buf, sizeof(buf))) return def_val;
+    float v = def_val;
+    if (!parse_float_safe(buf, &v)) return def_val;
+    return v;
 }
 
-static void extract_attr_str(const char *line, const char *key, char *dst, size_t dst_sz, const char *def_val) {
+static int attr_int(const char *tag, const char *key, int def_val) {
+    char buf[128];
+    if (!find_attr_value(tag, key, buf, sizeof(buf))) return def_val;
+    int v = def_val;
+    if (!parse_int_safe(buf, &v)) return def_val;
+    return v;
+}
+
+static unsigned char attr_color_u8(const char *tag, const char *key, unsigned char def_val) {
+    char buf[128];
+    if (!find_attr_value(tag, key, buf, sizeof(buf))) return def_val;
+    float fv = 0.0f;
+    if (!parse_float_safe(buf, &fv)) return def_val;
+    /* Support Blender-style 0.0..1.0 normalized floats when decimal point is used */
+    if (strchr(buf, '.') != NULL && fv >= 0.0f && fv <= 1.0f) {
+        return clamp_u8(fv * 255.0f);
+    }
+    return clamp_u8(fv);
+}
+
+static void attr_str(const char *tag, const char *key, char *dst, size_t dst_sz, const char *def_val) {
     snprintf(dst, dst_sz, "%s", def_val);
-    char pat[64];
-    int n = snprintf(pat, sizeof(pat), "%s=\"", key);
-    if (n <= 0 || (size_t)n >= sizeof(pat)) return;
-    const char *p = strstr(line, pat);
-    if (!p) return;
-    p += (size_t)n;
-    const char *q = strchr(p, '"');
-    if (!q || q <= p) return;
-    size_t len = (size_t)(q - p);
+    char buf[128];
+    if (!find_attr_value(tag, key, buf, sizeof(buf))) return;
+    size_t len = strlen(buf);
     if (len >= dst_sz) len = dst_sz - 1;
-    memcpy(dst, p, len);
+    memcpy(dst, buf, len);
     dst[len] = '\0';
+}
+
+static void apply_optional_vec3_attr(const char *tag, const char *key, Vec3 *target) {
+    char buf[128];
+    Vec3 tmp;
+    if (find_attr_value(tag, key, buf, sizeof(buf)) && parse_vec3_csv(buf, &tmp)) {
+        *target = tmp;
+    }
+}
+
+static void apply_optional_rgb_attr(const char *tag, const char *key, unsigned char *r, unsigned char *g, unsigned char *b) {
+    char buf[128];
+    Vec3 tmp;
+    if (!find_attr_value(tag, key, buf, sizeof(buf)) || !parse_vec3_csv(buf, &tmp)) return;
+    int norm = (strchr(buf, '.') != NULL && tmp.x >= 0.0f && tmp.x <= 1.0f && tmp.y >= 0.0f && tmp.y <= 1.0f && tmp.z >= 0.0f && tmp.z <= 1.0f);
+    *r = clamp_u8(norm ? tmp.x * 255.0f : tmp.x);
+    *g = clamp_u8(norm ? tmp.y * 255.0f : tmp.y);
+    *b = clamp_u8(norm ? tmp.z * 255.0f : tmp.z);
+}
+
+static void process_xml_tag(
+    Scene *s, const char *tag,
+    int *parsed_custom_light, int *in_mesh_obj,
+    char *obj_type, size_t obj_type_sz,
+    Vec3 *obj_c, Vec3 *obj_s, Vec3 *obj_r,
+    unsigned char obj_col[3],
+    float *obj_spec, float *obj_shine, float *obj_emit, float *obj_spin,
+    int *obj_visible, int *obj_rows, int *obj_cols, float *obj_step,
+    Vec3 *cv, int *cv_count, int *ct, int *ct_count
+) {
+    if (strncmp(tag, "<world", 6) == 0 && (tag[6] == '\0' || isspace((unsigned char)tag[6]) || tag[6] == '/' || tag[6] == '>')) {
+        s->world.bg_r = attr_color_u8(tag, "r", s->world.bg_r);
+        s->world.bg_g = attr_color_u8(tag, "g", s->world.bg_g);
+        s->world.bg_b = attr_color_u8(tag, "b", s->world.bg_b);
+        apply_optional_rgb_attr(tag, "color", &s->world.bg_r, &s->world.bg_g, &s->world.bg_b);
+        s->world.ambient = clamp_range(attr_float(tag, "ambient", s->world.ambient), 0.0f, 1.0f, s->world.ambient);
+    } else if (strncmp(tag, "<camera", 7) == 0 && (tag[7] == '\0' || isspace((unsigned char)tag[7]) || tag[7] == '/' || tag[7] == '>')) {
+        s->cam.pos.x = clamp_range(attr_float(tag, "x", s->cam.pos.x), -1e5f, 1e5f, s->cam.pos.x);
+        s->cam.pos.y = clamp_range(attr_float(tag, "y", s->cam.pos.y), -1e5f, 1e5f, s->cam.pos.y);
+        s->cam.pos.z = clamp_range(attr_float(tag, "z", s->cam.pos.z), -1e5f, 1e5f, s->cam.pos.z);
+        apply_optional_vec3_attr(tag, "location", &s->cam.pos);
+        s->cam.yaw = clamp_range(attr_float(tag, "yaw", s->cam.yaw), -50.0f, 50.0f, s->cam.yaw);
+        s->cam.pitch = clamp_range(attr_float(tag, "pitch", s->cam.pitch), -50.0f, 50.0f, s->cam.pitch);
+        s->cam.fov = clamp_range(attr_float(tag, "fov", s->cam.fov), 50.0f, 1400.0f, 420.0f);
+        s->cam.orbit_cam = attr_int(tag, "orbit_cam", s->cam.orbit_cam) ? 1 : 0;
+    } else if (strncmp(tag, "<light", 6) == 0 && (tag[6] == '\0' || isspace((unsigned char)tag[6]) || tag[6] == '/' || tag[6] == '>')) {
+        if (!(*parsed_custom_light)) {
+            s->light_count = 0;
+            *parsed_custom_light = 1;
+        }
+        if (s->light_count < MAX_LIGHTS) {
+            Light lt;
+            lt.pos.x = clamp_range(attr_float(tag, "x", 5.0f), -1e5f, 1e5f, 5.0f);
+            lt.pos.y = clamp_range(attr_float(tag, "y", 8.0f), -1e5f, 1e5f, 8.0f);
+            lt.pos.z = clamp_range(attr_float(tag, "z", 6.0f), -1e5f, 1e5f, 6.0f);
+            apply_optional_vec3_attr(tag, "location", &lt.pos);
+            unsigned char lr = attr_color_u8(tag, "r", 255);
+            unsigned char lg = attr_color_u8(tag, "g", 255);
+            unsigned char lb = attr_color_u8(tag, "b", 255);
+            apply_optional_rgb_attr(tag, "color", &lr, &lg, &lb);
+            lt.color.x = (float)lr / 255.0f;
+            lt.color.y = (float)lg / 255.0f;
+            lt.color.z = (float)lb / 255.0f;
+            lt.intensity = clamp_range(attr_float(tag, "intensity", 0.8f), 0.0f, 4.0f, 0.8f);
+            s->lights[s->light_count++] = lt;
+        }
+    } else if (strncmp(tag, "<object", 7) == 0 && (tag[7] == '\0' || isspace((unsigned char)tag[7]) || tag[7] == '/' || tag[7] == '>')) {
+        attr_str(tag, "type", obj_type, obj_type_sz, "box");
+        obj_c->x = clamp_range(attr_float(tag, "x", 0.0f), -1e5f, 1e5f, 0.0f);
+        obj_c->y = clamp_range(attr_float(tag, "y", 0.0f), -1e5f, 1e5f, 0.0f);
+        obj_c->z = clamp_range(attr_float(tag, "z", 0.0f), -1e5f, 1e5f, 0.0f);
+        apply_optional_vec3_attr(tag, "location", obj_c);
+
+        obj_s->x = clamp_range(attr_float(tag, "sx", 1.0f), 0.01f, 200.0f, 1.0f);
+        obj_s->y = clamp_range(attr_float(tag, "sy", 1.0f), 0.01f, 200.0f, 1.0f);
+        obj_s->z = clamp_range(attr_float(tag, "sz", 1.0f), 0.01f, 200.0f, 1.0f);
+        Vec3 sc_tmp = *obj_s;
+        apply_optional_vec3_attr(tag, "scale", &sc_tmp);
+        obj_s->x = clamp_range(sc_tmp.x, 0.01f, 200.0f, obj_s->x);
+        obj_s->y = clamp_range(sc_tmp.y, 0.01f, 200.0f, obj_s->y);
+        obj_s->z = clamp_range(sc_tmp.z, 0.01f, 200.0f, obj_s->z);
+
+        float yaw_fb = attr_float(tag, "yaw", 0.0f);
+        obj_r->x = clamp_range(attr_float(tag, "rx", 0.0f), -50.0f, 50.0f, 0.0f);
+        obj_r->y = clamp_range(attr_float(tag, "ry", yaw_fb), -50.0f, 50.0f, yaw_fb);
+        obj_r->z = clamp_range(attr_float(tag, "rz", 0.0f), -50.0f, 50.0f, 0.0f);
+        apply_optional_vec3_attr(tag, "rotation", obj_r);
+
+        obj_col[0] = attr_color_u8(tag, "r", 160);
+        obj_col[1] = attr_color_u8(tag, "g", 160);
+        obj_col[2] = attr_color_u8(tag, "b", 160);
+        apply_optional_rgb_attr(tag, "color", &obj_col[0], &obj_col[1], &obj_col[2]);
+
+        *obj_spec = clamp_range(attr_float(tag, "spec", 0.25f), 0.0f, 1.0f, 0.25f);
+        *obj_shine = clamp_range(attr_float(tag, "shine", 24.0f), 2.0f, 256.0f, 24.0f);
+        *obj_emit = clamp_range(attr_float(tag, "emit", 0.0f), 0.0f, 1.0f, 0.0f);
+        *obj_spin = clamp_range(attr_float(tag, "spin_y", 0.0f), -10.0f, 10.0f, 0.0f);
+        *obj_visible = attr_int(tag, "visible", 1) ? 1 : 0;
+        *obj_rows = (int)clamp_range((float)attr_int(tag, "rows", 10), 1.0f, 40.0f, 10.0f);
+        *obj_cols = (int)clamp_range((float)attr_int(tag, "cols", 10), 1.0f, 40.0f, 10.0f);
+        *obj_step = clamp_range(attr_float(tag, "step", 1.0f), 0.1f, 20.0f, 1.0f);
+
+        int self_closing = (strstr(tag, "/>") != NULL);
+        if (strcmp(obj_type, "mesh") == 0 && !self_closing) {
+            *in_mesh_obj = 1;
+            *cv_count = 0;
+            *ct_count = 0;
+        } else {
+            *in_mesh_obj = 0;
+            if (strcmp(obj_type, "plane") == 0) {
+                scene_add_plane(s, *obj_c, obj_s->x, obj_s->z, *obj_r, obj_col[0], obj_col[1], obj_col[2], *obj_spec, *obj_shine, *obj_emit, *obj_spin, *obj_visible);
+            } else if (strcmp(obj_type, "pyramid") == 0) {
+                scene_add_pyramid(s, *obj_c, *obj_s, *obj_r, obj_col[0], obj_col[1], obj_col[2], *obj_spec, *obj_shine, *obj_emit, *obj_spin, *obj_visible);
+            } else if (strcmp(obj_type, "grid") == 0) {
+                scene_add_grid_boxes(s, *obj_c, *obj_s, *obj_rows, *obj_cols, *obj_step, obj_col[0], obj_col[1], obj_col[2], *obj_spec, *obj_shine, *obj_emit, *obj_spin, *obj_visible);
+            } else {
+                scene_add_box(s, *obj_c, *obj_s, *obj_r, obj_col[0], obj_col[1], obj_col[2], *obj_spec, *obj_shine, *obj_emit, *obj_spin, *obj_visible);
+            }
+        }
+    } else if (*in_mesh_obj && strncmp(tag, "<v", 2) == 0 && (tag[2] == '\0' || isspace((unsigned char)tag[2]) || tag[2] == '/' || tag[2] == '>')) {
+        if (*cv_count < MAX_CUSTOM_V) {
+            cv[*cv_count].x = clamp_range(attr_float(tag, "x", 0.0f), -1e4f, 1e4f, 0.0f);
+            cv[*cv_count].y = clamp_range(attr_float(tag, "y", 0.0f), -1e4f, 1e4f, 0.0f);
+            cv[*cv_count].z = clamp_range(attr_float(tag, "z", 0.0f), -1e4f, 1e4f, 0.0f);
+            (*cv_count)++;
+        }
+    } else if (*in_mesh_obj && strncmp(tag, "<tri", 4) == 0 && (tag[4] == '\0' || isspace((unsigned char)tag[4]) || tag[4] == '/' || tag[4] == '>')) {
+        if (*ct_count < MAX_CUSTOM_T) {
+            ct[(*ct_count) * 3 + 0] = attr_int(tag, "v0", -1);
+            ct[(*ct_count) * 3 + 1] = attr_int(tag, "v1", -1);
+            ct[(*ct_count) * 3 + 2] = attr_int(tag, "v2", -1);
+            (*ct_count)++;
+        }
+    } else if (*in_mesh_obj && strncmp(tag, "</object", 8) == 0) {
+        scene_add_custom_mesh(
+            s, *obj_c, *obj_s, *obj_r, cv, *cv_count, ct, *ct_count,
+            obj_col[0], obj_col[1], obj_col[2], *obj_spec, *obj_shine, *obj_emit, *obj_spin, *obj_visible
+        );
+        *in_mesh_obj = 0;
+        *cv_count = 0;
+        *ct_count = 0;
+    }
 }
 
 static int load_scene_xml(Scene *s, const char *path) {
@@ -475,116 +671,61 @@ static int load_scene_xml(Scene *s, const char *path) {
 
     Vec3 *cv = malloc(sizeof(Vec3) * MAX_CUSTOM_V);
     int *ct = malloc(sizeof(int) * MAX_CUSTOM_T * 3);
-    if (!cv || !ct) {
+    char *tag_buf = malloc(MAX_TAG_BUF);
+    if (!cv || !ct || !tag_buf) {
         free(cv);
         free(ct);
+        free(tag_buf);
         fclose(f);
         return 0;
     }
     int cv_count = 0;
     int ct_count = 0;
+    int in_tag = 0;
+    size_t tag_len = 0;
 
-    char line[1024];
-    while (fgets(line, sizeof(line), f) != NULL) {
-        if (strstr(line, "<world") != NULL) {
-            s->world.bg_r = clamp_u8((float)extract_attr_int(line, "r", s->world.bg_r));
-            s->world.bg_g = clamp_u8((float)extract_attr_int(line, "g", s->world.bg_g));
-            s->world.bg_b = clamp_u8((float)extract_attr_int(line, "b", s->world.bg_b));
-            s->world.ambient = clamp_range(extract_attr_float(line, "ambient", s->world.ambient), 0.0f, 1.0f, s->world.ambient);
-        } else if (strstr(line, "<camera") != NULL) {
-            s->cam.pos.x = extract_attr_float(line, "x", s->cam.pos.x);
-            s->cam.pos.y = extract_attr_float(line, "y", s->cam.pos.y);
-            s->cam.pos.z = extract_attr_float(line, "z", s->cam.pos.z);
-            s->cam.yaw = extract_attr_float(line, "yaw", s->cam.yaw);
-            s->cam.pitch = extract_attr_float(line, "pitch", s->cam.pitch);
-            s->cam.fov = clamp_range(extract_attr_float(line, "fov", s->cam.fov), 50.0f, 1400.0f, 420.0f);
-            s->cam.orbit_cam = extract_attr_int(line, "orbit_cam", s->cam.orbit_cam);
-        } else if (strstr(line, "<light") != NULL) {
-            if (!parsed_custom_light) {
-                s->light_count = 0;
-                parsed_custom_light = 1;
+    int ch;
+    while ((ch = fgetc(f)) != EOF) {
+        if (ch == '<') {
+            in_tag = 1;
+            tag_len = 0;
+            tag_buf[tag_len++] = (char)ch;
+        } else if (in_tag && ch == '>') {
+            if (tag_len + 1 < MAX_TAG_BUF) {
+                tag_buf[tag_len++] = (char)ch;
             }
-            if (s->light_count < MAX_LIGHTS) {
-                Light lt;
-                lt.pos.x = extract_attr_float(line, "x", 5.0f);
-                lt.pos.y = extract_attr_float(line, "y", 8.0f);
-                lt.pos.z = extract_attr_float(line, "z", 6.0f);
-                int lr = extract_attr_int(line, "r", 255);
-                int lg = extract_attr_int(line, "g", 255);
-                int lb = extract_attr_int(line, "b", 255);
-                lt.color.x = (float)clamp_u8((float)lr) / 255.0f;
-                lt.color.y = (float)clamp_u8((float)lg) / 255.0f;
-                lt.color.z = (float)clamp_u8((float)lb) / 255.0f;
-                lt.intensity = clamp_range(extract_attr_float(line, "intensity", 0.8f), 0.0f, 4.0f, 0.8f);
-                s->lights[s->light_count++] = lt;
+            tag_buf[tag_len] = '\0';
+            if (strncmp(tag_buf, "<!--", 4) != 0 && strncmp(tag_buf, "<?", 2) != 0) {
+                process_xml_tag(
+                    s, tag_buf,
+                    &parsed_custom_light, &in_mesh_obj,
+                    obj_type, sizeof(obj_type),
+                    &obj_c, &obj_s, &obj_r,
+                    obj_col,
+                    &obj_spec, &obj_shine, &obj_emit, &obj_spin,
+                    &obj_visible, &obj_rows, &obj_cols, &obj_step,
+                    cv, &cv_count, ct, &ct_count
+                );
             }
-        } else if (strstr(line, "<object") != NULL) {
-            extract_attr_str(line, "type", obj_type, sizeof(obj_type), "box");
-            obj_c.x = extract_attr_float(line, "x", 0.0f);
-            obj_c.y = extract_attr_float(line, "y", 0.0f);
-            obj_c.z = extract_attr_float(line, "z", 0.0f);
-            obj_s.x = clamp_range(extract_attr_float(line, "sx", 1.0f), 0.01f, 200.0f, 1.0f);
-            obj_s.y = clamp_range(extract_attr_float(line, "sy", 1.0f), 0.01f, 200.0f, 1.0f);
-            obj_s.z = clamp_range(extract_attr_float(line, "sz", 1.0f), 0.01f, 200.0f, 1.0f);
-            float yaw_fb = extract_attr_float(line, "yaw", 0.0f);
-            obj_r.x = extract_attr_float(line, "rx", 0.0f);
-            obj_r.y = extract_attr_float(line, "ry", yaw_fb);
-            obj_r.z = extract_attr_float(line, "rz", 0.0f);
-            obj_col[0] = clamp_u8((float)extract_attr_int(line, "r", 160));
-            obj_col[1] = clamp_u8((float)extract_attr_int(line, "g", 160));
-            obj_col[2] = clamp_u8((float)extract_attr_int(line, "b", 160));
-            obj_spec = clamp_range(extract_attr_float(line, "spec", 0.25f), 0.0f, 1.0f, 0.25f);
-            obj_shine = clamp_range(extract_attr_float(line, "shine", 24.0f), 2.0f, 256.0f, 24.0f);
-            obj_emit = clamp_range(extract_attr_float(line, "emit", 0.0f), 0.0f, 1.0f, 0.0f);
-            obj_spin = clamp_range(extract_attr_float(line, "spin_y", 0.0f), -10.0f, 10.0f, 0.0f);
-            obj_visible = extract_attr_int(line, "visible", 1) ? 1 : 0;
-            obj_rows = (int)clamp_range((float)extract_attr_int(line, "rows", 10), 1.0f, 40.0f, 10.0f);
-            obj_cols = (int)clamp_range((float)extract_attr_int(line, "cols", 10), 1.0f, 40.0f, 10.0f);
-            obj_step = clamp_range(extract_attr_float(line, "step", 1.0f), 0.1f, 20.0f, 1.0f);
-
-            if (strcmp(obj_type, "mesh") == 0 && strstr(line, "/>") == NULL) {
-                in_mesh_obj = 1;
-                cv_count = 0;
-                ct_count = 0;
-            } else {
-                in_mesh_obj = 0;
-                if (strcmp(obj_type, "plane") == 0) {
-                    scene_add_plane(s, obj_c, obj_s.x, obj_s.z, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible);
-                } else if (strcmp(obj_type, "pyramid") == 0) {
-                    scene_add_pyramid(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible);
-                } else if (strcmp(obj_type, "grid") == 0) {
-                    scene_add_grid_boxes(s, obj_c, obj_s, obj_rows, obj_cols, obj_step, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible);
-                } else {
-                    scene_add_box(s, obj_c, obj_s, obj_r, obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible);
-                }
+            in_tag = 0;
+            tag_len = 0;
+        } else if (in_tag) {
+            if (tag_len + 1 < MAX_TAG_BUF) {
+                tag_buf[tag_len++] = (char)ch;
             }
-        } else if (in_mesh_obj && strstr(line, "<v") != NULL) {
-            if (cv_count < MAX_CUSTOM_V) {
-                cv[cv_count].x = extract_attr_float(line, "x", 0.0f);
-                cv[cv_count].y = extract_attr_float(line, "y", 0.0f);
-                cv[cv_count].z = extract_attr_float(line, "z", 0.0f);
-                cv_count++;
-            }
-        } else if (in_mesh_obj && strstr(line, "<tri") != NULL) {
-            if (ct_count < MAX_CUSTOM_T) {
-                ct[ct_count * 3 + 0] = extract_attr_int(line, "v0", -1);
-                ct[ct_count * 3 + 1] = extract_attr_int(line, "v1", -1);
-                ct[ct_count * 3 + 2] = extract_attr_int(line, "v2", -1);
-                ct_count++;
-            }
-        } else if (in_mesh_obj && strstr(line, "</object>") != NULL) {
-            scene_add_custom_mesh(
-                s, obj_c, obj_s, obj_r, cv, cv_count, ct, ct_count,
-                obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible
-            );
-            in_mesh_obj = 0;
-            cv_count = 0;
-            ct_count = 0;
         }
+    }
+
+    if (in_mesh_obj && cv_count > 0 && ct_count > 0) {
+        scene_add_custom_mesh(
+            s, obj_c, obj_s, obj_r, cv, cv_count, ct, ct_count,
+            obj_col[0], obj_col[1], obj_col[2], obj_spec, obj_shine, obj_emit, obj_spin, obj_visible
+        );
     }
 
     free(cv);
     free(ct);
+    free(tag_buf);
     fclose(f);
 
     if (s->light_count == 0) {
@@ -996,15 +1137,25 @@ static int run_interactive_shell(
                 printf("Invalid r format, use: r rx,ry,rz\n");
             }
         } else if (strncmp(line, "z ", 2) == 0) {
-            custom_fov = strtof(line + 2, NULL);
+            float fv = 0.0f;
+            if (parse_float_safe(line + 2, &fv)) custom_fov = fv;
+            else printf("Invalid z value\n");
         } else if (strncmp(line, "m ", 2) == 0) {
-            scene_scale = strtof(line + 2, NULL);
+            float mv = 0.0f;
+            if (parse_float_safe(line + 2, &mv)) scene_scale = mv;
+            else printf("Invalid m value\n");
         } else if (strncmp(line, "n ", 2) == 0) {
-            count = atoi(line + 2);
+            int nv = 0;
+            if (parse_int_safe(line + 2, &nv)) count = nv;
+            else printf("Invalid n value\n");
         } else if (strncmp(line, "f ", 2) == 0) {
-            start_frame = atoi(line + 2);
+            int fv = 0;
+            if (parse_int_safe(line + 2, &fv)) start_frame = fv;
+            else printf("Invalid f value\n");
         } else if (strncmp(line, "s ", 2) == 0) {
-            snprintf(scene_buf, sizeof(scene_buf), "%s", line + 2);
+            const char *sp = line + 2;
+            while (*sp && isspace((unsigned char)*sp)) sp++;
+            snprintf(scene_buf, sizeof(scene_buf), "%s", sp);
         } else {
             printf("Unknown command '%s' (type 'help')\n", line);
         }
@@ -1059,11 +1210,20 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Note: -p is disabled in headless build (mini_blender_pi)\n");
 #endif
         } else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
-            start_frame = atoi(argv[++i]);
+            if (!parse_int_safe(argv[++i], &start_frame)) {
+                fprintf(stderr, "Error: invalid -f value\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
-            count = atoi(argv[++i]);
+            if (!parse_int_safe(argv[++i], &count)) {
+                fprintf(stderr, "Error: invalid -n value\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
-            total_cycle = atoi(argv[++i]);
+            if (!parse_int_safe(argv[++i], &total_cycle)) {
+                fprintf(stderr, "Error: invalid -c value\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             out_dir = argv[++i];
         } else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
@@ -1079,9 +1239,15 @@ int main(int argc, char **argv) {
                 return 1;
             }
         } else if (strcmp(argv[i], "-z") == 0 && i + 1 < argc) {
-            custom_fov = strtof(argv[++i], NULL);
+            if (!parse_float_safe(argv[++i], &custom_fov)) {
+                fprintf(stderr, "Error: invalid -z value\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "-m") == 0 && i + 1 < argc) {
-            scene_scale = strtof(argv[++i], NULL);
+            if (!parse_float_safe(argv[++i], &scene_scale)) {
+                fprintf(stderr, "Error: invalid -m value\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "-q") == 0) {
             quiet = 1;
         } else {
