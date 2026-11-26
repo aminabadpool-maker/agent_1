@@ -15,3 +15,5 @@ for spec in "${jobs[@]}"; do IFS=":" read -r j_tag j_frames j_scene <<< "$spec";
 if [ "$parallel_mode" -eq 1 ]; then for idx in "${!pids[@]}"; do pid="${pids[$idx]}"; j_tag="${tags[$idx]}"; if ! wait "$pid"; then echo "FAIL: parallel job '${j_tag}' (PID ${pid}) failed." >&2; failed=$((failed + 1)); else echo "OK: parallel job '${j_tag}' completed."; fi; done; fi
 if [ "$failed" -gt 0 ]; then echo "=== MULTI-JOB FINISHED WITH ${failed} FAILURE(S) ===" >&2; exit 1; fi
 echo "=== ALL ${#jobs[@]} JOBS COMPLETED SUCCESSFULLY ==="
+
+for out_dir in renders/*/; do [ -d "$out_dir" ] || continue; if ls "$out_dir"/frame_*.ppm >/dev/null 2>&1 && command -v ffmpeg >/dev/null 2>&1; then ./ppm_to_mp4.sh -i "${out_dir%/}" -o "${out_dir%/}/output.mp4" -f 24 --crf 20 >/dev/null 2>&1 || true; fi; done
