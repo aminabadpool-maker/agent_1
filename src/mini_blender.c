@@ -50,8 +50,11 @@ typedef struct {
 
 typedef struct {
     Vec3 pos;
+    Vec3 target;
+    int has_target;
     float yaw;
     float pitch;
+    float roll;
     float fov;
     int orbit_cam;
 } Camera;
@@ -327,6 +330,11 @@ static void scene_init_defaults(Scene *s) {
     s->cam.yaw = 0.0f;
     s->cam.pitch = -0.16f;
     s->cam.fov = 420.0f;
+    s->cam.target.x = 0.0f;
+    s->cam.target.y = 0.0f;
+    s->cam.target.z = 0.0f;
+    s->cam.has_target = 0;
+    s->cam.roll = 0.0f;
     s->cam.orbit_cam = 0;
 
     s->world.bg_r = 18;
@@ -666,6 +674,21 @@ static void process_xml_tag(
         s->cam.pos.y = clamp_range(attr_float(tag, "y", s->cam.pos.y), -1e5f, 1e5f, s->cam.pos.y);
         s->cam.pos.z = clamp_range(attr_float(tag, "z", s->cam.pos.z), -1e5f, 1e5f, s->cam.pos.z);
         apply_optional_vec3_attr(tag, "location", &s->cam.pos);
+        Vec3 tgt_tmp;
+        char tgt_buf[128];
+        if (find_attr_value(tag, "target", tgt_buf, sizeof(tgt_buf)) && parse_vec3_csv(tgt_buf, &tgt_tmp)) {
+            s->cam.target = tgt_tmp;
+            s->cam.has_target = 1;
+            float dx = s->cam.target.x - s->cam.pos.x;
+            float dy = s->cam.target.y - s->cam.pos.y;
+            float dz = s->cam.target.z - s->cam.pos.z;
+            float horiz = sqrtf(dx * dx + dz * dz);
+            if (horiz > 1e-6f || fabsf(dy) > 1e-6f) {
+                s->cam.yaw = clamp_range(atan2f(dx, (fabsf(dz) > 1e-6f ? dz : 1e-6f)), -50.0f, 50.0f, s->cam.yaw);
+                s->cam.pitch = clamp_range(-atan2f(dy, (horiz > 1e-6f ? horiz : 1e-6f)), -50.0f, 50.0f, s->cam.pitch);
+            }
+        }
+        s->cam.roll = clamp_range(attr_float(tag, "roll", s->cam.roll), -50.0f, 50.0f, s->cam.roll);
         s->cam.yaw = clamp_range(attr_float(tag, "yaw", s->cam.yaw), -50.0f, 50.0f, s->cam.yaw);
         s->cam.pitch = clamp_range(attr_float(tag, "pitch", s->cam.pitch), -50.0f, 50.0f, s->cam.pitch);
         s->cam.fov = clamp_range(attr_float(tag, "fov", s->cam.fov), 50.0f, 1400.0f, 420.0f);
