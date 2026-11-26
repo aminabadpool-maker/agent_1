@@ -744,7 +744,8 @@ static void print_terminal_preview(void) {
             unsigned char r = (unsigned char)(cnt ? (sum_r / cnt) : 0);
             unsigned char g = (unsigned char)(cnt ? (sum_g / cnt) : 0);
             unsigned char b = (unsigned char)(cnt ? (sum_b / cnt) : 0);
-            printf("\x1b[48;2;%u;%u;%um ", r, g, b);
+            char glyph = ((r + g + b) > 120) ? '#' : (((r + g + b) > 55) ? '+' : '.');
+            printf("\x1b[48;2;%u;%u;%um%c", r, g, b, glyph);
         }
         printf("\x1b[0m\n");
     }
@@ -790,15 +791,20 @@ static int render_frame(
         }
     }
 
+    Vec3 cam_shift = { -frame_cam.pos.x, -frame_cam.pos.y, 0.0f };
+    Camera view_cam = frame_cam;
+    view_cam.pos.x = 0.0f;
+    view_cam.pos.y = 0.0f;
+
     for (int i = 0; i < s->tcount; i++) {
         Tri t = s->tris[i];
         if (t.v0 < 0 || t.v0 >= s->vcount || t.v1 < 0 || t.v1 >= s->vcount || t.v2 < 0 || t.v2 >= s->vcount) {
             continue;
         }
-        Vec3 p0 = rot_xyz(anim_v[t.v0], frame_cam.pitch, frame_cam.yaw, 0.0f);
-        Vec3 p1 = rot_xyz(anim_v[t.v1], frame_cam.pitch, frame_cam.yaw, 0.0f);
-        Vec3 p2 = rot_xyz(anim_v[t.v2], frame_cam.pitch, frame_cam.yaw, 0.0f);
-        raster_tri(p0, p1, p2, &frame_cam, &t, s->lights, s->light_count);
+        Vec3 p0 = rot_xyz(v3_add(anim_v[t.v0], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
+        Vec3 p1 = rot_xyz(v3_add(anim_v[t.v1], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
+        Vec3 p2 = rot_xyz(v3_add(anim_v[t.v2], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
+        raster_tri(p0, p1, p2, &view_cam, &t, s->lights, s->light_count);
     }
 
     free(anim_v);
