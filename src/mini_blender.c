@@ -102,6 +102,43 @@ static float clamp_range(float v, float lo, float hi, float def_val) {
     return v;
 }
 
+
+static float mb_finf(float v, float fallback) {
+    return isfinite(v) ? v : fallback;
+}
+
+static Vec3 mb_vec3_sane(Vec3 v, Vec3 fallback) {
+    Vec3 out;
+    out.x = mb_finf(v.x, fallback.x);
+    out.y = mb_finf(v.y, fallback.y);
+    out.z = mb_finf(v.z, fallback.z);
+    return out;
+}
+
+static void mb_cam_apply_target_and_roll(Camera *cam) {
+    if (!cam) return;
+    Vec3 zero = {0.0f, 0.0f, 0.0f};
+    cam->pos = mb_vec3_sane(cam->pos, zero);
+    cam->target = mb_vec3_sane(cam->target, zero);
+    cam->roll = mb_finf(cam->roll, 0.0f);
+    cam->yaw = mb_finf(cam->yaw, 0.0f);
+    cam->pitch = mb_finf(cam->pitch, 0.0f);
+    cam->fov = mb_finf(cam->fov, 420.0f);
+
+    if (cam->has_target) {
+        float dx = cam->target.x - cam->pos.x;
+        float dy = cam->target.y - cam->pos.y;
+        float dz = cam->target.z - cam->pos.z;
+        float horiz = sqrtf(dx * dx + dz * dz);
+        if (horiz > 1e-6f || fabsf(dy) > 1e-6f) {
+            float yaw = atan2f(dx, (fabsf(dz) > 1e-6f ? dz : 1e-6f));
+            float pitch = -atan2f(dy, (horiz > 1e-6f ? horiz : 1e-6f));
+            cam->yaw = clamp_range(yaw, -50.0f, 50.0f, cam->yaw);
+            cam->pitch = clamp_range(pitch, -50.0f, 50.0f, cam->pitch);
+        }
+    }
+}
+
 static float clamp_scene_scale(float s) {
     return clamp_range(s, 0.1f, 10.0f, 1.0f);
 }
@@ -689,6 +726,7 @@ static void process_xml_tag(
             }
         }
         s->cam.roll = clamp_range(attr_float(tag, "roll", s->cam.roll), -50.0f, 50.0f, s->cam.roll);
+        mb_cam_apply_target_and_roll(&s->cam);
         s->cam.yaw = clamp_range(attr_float(tag, "yaw", s->cam.yaw), -50.0f, 50.0f, s->cam.yaw);
         s->cam.pitch = clamp_range(attr_float(tag, "pitch", s->cam.pitch), -50.0f, 50.0f, s->cam.pitch);
         s->cam.fov = clamp_range(attr_float(tag, "fov", s->cam.fov), 50.0f, 1400.0f, 420.0f);
