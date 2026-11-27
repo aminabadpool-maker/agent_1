@@ -169,6 +169,12 @@ int sculpt_reset(SculptScene *scene) {
     return emit_box_tris(scene, starter);
 }
 
+int sculpt_spawn_starter(SculptScene *scene) {
+    if (!scene) return -1;
+    SculptBox ready_block = {-0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f};
+    return sculpt_add_box(scene, ready_block);
+}
+
 size_t sculpt_active_count(const SculptScene *scene) {
     if (!scene || !scene->tris) return 0;
     size_t active = 0;
@@ -178,6 +184,16 @@ size_t sculpt_active_count(const SculptScene *scene) {
         }
     }
     return active;
+}
+
+void sculpt_print_status(const SculptScene *scene) {
+    if (!scene) return;
+    const char *mode_name = (scene->cube_mode == SCULPT_MODE_ERASE) ? "ERASE" : "ADD";
+    printf("[Status] active=%zu / total=%zu | mode=%s | undo_ready=%s\n",
+           sculpt_active_count(scene),
+           scene->count,
+           mode_name,
+           scene->has_prev ? "yes" : "no");
 }
 
 void sculpt_set_cube_mode(SculptScene *scene, SculptCubeMode mode) {
@@ -275,6 +291,10 @@ SculptShortcut sculpt_map_char(char ch) {
         case 'u': return SCULPT_KEY_UNDO;
         case 'x':
         case '0': return SCULPT_KEY_SAFE_RESET;
+        case 'b':
+        case '1': return SCULPT_KEY_STARTER;
+        case '?':
+        case 'i': return SCULPT_KEY_STATUS;
         default:  return SCULPT_KEY_NONE;
     }
 }
@@ -298,6 +318,11 @@ int sculpt_handle_shortcut(SculptScene *scene, SculptShortcut key) {
             return sculpt_undo(scene);
         case SCULPT_KEY_SAFE_RESET:
             return sculpt_reset(scene);
+        case SCULPT_KEY_STARTER:
+            return sculpt_spawn_starter(scene);
+        case SCULPT_KEY_STATUS:
+            sculpt_print_status(scene);
+            return 0;
         case SCULPT_KEY_NONE:
         default:
             return 0;
