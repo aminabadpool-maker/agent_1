@@ -1010,15 +1010,17 @@ static void raster_tri(
     if (z0 <= 0.25f || z1 <= 0.25f || z2 <= 0.25f) return;
 
     Vec3 n = v3_norm(v3_cross(v3_sub(p1, p0), v3_sub(p2, p0)));
+    const float inv3 = 1.0f / 3.0f;
     Vec3 centroid = {
-        (p0.x + p1.x + p2.x) / 3.0f,
-        (p0.y + p1.y + p2.y) / 3.0f,
-        (p0.z + p1.z + p2.z) / 3.0f
+        (p0.x + p1.x + p2.x) * inv3,
+        (p0.y + p1.y + p2.y) * inv3,
+        (p0.z + p1.z + p2.z) * inv3
     };
 
-    float acc_r = ambient + tri->emit;
-    float acc_g = ambient + tri->emit;
-    float acc_b = ambient + tri->emit;
+    float base_acc = ambient + tri->emit;
+    float acc_r = base_acc;
+    float acc_g = base_acc;
+    float acc_b = base_acc;
 
     int has_spec = (light_count > 0 && tri->spec > 0.0f) ? 1 : 0;
     Vec3 view_dir = {0.0f, 0.0f, 0.0f};
@@ -1027,24 +1029,27 @@ static void raster_tri(
     }
 
     for (int i = 0; i < light_count; i++) {
-        Vec3 ldir = v3_norm(v3_sub(lights[i].pos, centroid));
+        const Light *lt = &lights[i];
+        Vec3 ldir = v3_norm(v3_sub(lt->pos, centroid));
         float ndotl = v3_dot(n, ldir);
-        if (ndotl < 0.0f) ndotl = 0.0f;
-        float diff = ndotl * lights[i].intensity;
+        if (ndotl <= 0.0f) continue;
+
+        float inten = lt->intensity;
+        float diff = ndotl * inten;
 
         float spec_term = 0.0f;
-        if (ndotl > 0.0f && has_spec) {
+        if (has_spec) {
             Vec3 half_v = v3_norm(v3_add(ldir, view_dir));
             float nh = v3_dot(n, half_v);
             if (nh > 0.0f) {
-                float p = powf(nh, tri->shine);
-                spec_term = p * tri->spec * lights[i].intensity;
+                spec_term = powf(nh, tri->shine) * tri->spec * inten;
             }
         }
 
-        acc_r += (diff + spec_term) * lights[i].color.x;
-        acc_g += (diff + spec_term) * lights[i].color.y;
-        acc_b += (diff + spec_term) * lights[i].color.z;
+        float lit = diff + spec_term;
+        acc_r += lit * lt->color.x;
+        acc_g += lit * lt->color.y;
+        acc_b += lit * lt->color.z;
     }
 
     if (acc_r > 1.25f) acc_r = 1.25f;
