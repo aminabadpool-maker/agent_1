@@ -1,39 +1,5 @@
+#include "render_common.h"
 #include <inttypes.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
-
-static bool file_looks_healthy(const char *path, uint64_t *out_bytes) {
-    struct stat st;
-    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
-        return false;
-    }
-
-    FILE *fp = fopen(path, "rb");
-    if (!fp) return false;
-
-    unsigned char buf[128];
-    size_t n = fread(buf, 1, sizeof(buf), fp);
-    int err = ferror(fp);
-    fclose(fp);
-
-    if (err != 0 || n == 0) return false;
-
-    bool non_zero = false;
-    for (size_t i = 0; i < n; i++) {
-        if (buf[i] != 0x00) {
-            non_zero = true;
-            break;
-        }
-    }
-    if (!non_zero) return false;
-
-    if (out_bytes) *out_bytes = (uint64_t)st.st_size;
-    return true;
-}
 
 static int summarize_paths(int count, char **paths) {
     if (count <= 0) {
@@ -47,7 +13,7 @@ static int summarize_paths(int count, char **paths) {
 
     for (int i = 0; i < count; i++) {
         uint64_t sz = 0;
-        if (file_looks_healthy(paths[i], &sz)) {
+        if (rc_inspect_artifact(paths[i], &sz, NULL)) {
             ok_count++;
             if (UINT64_MAX - total_bytes >= sz) {
                 total_bytes += sz;

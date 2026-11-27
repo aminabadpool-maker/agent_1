@@ -1,10 +1,5 @@
-#include <errno.h>
+#include "render_common.h"
 #include <inttypes.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #define MAX_JOBS 512
 #define MAX_LINE 512
@@ -18,38 +13,6 @@ typedef struct {
     uint32_t priority;
     uint64_t est_sec;
 } seen_job_t;
-
-static void trim_eol(char *s) {
-    size_t n = strlen(s);
-    while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r')) {
-        s[--n] = '\0';
-    }
-}
-
-static bool is_blank_or_comment(const char *s) {
-    while (*s == ' ' || *s == '\t') s++;
-    return (*s == '\0' || *s == '#');
-}
-
-static int parse_u32(const char *s, uint32_t *out) {
-    if (!s || !*s) return -1;
-    errno = 0;
-    char *end = NULL;
-    unsigned long v = strtoul(s, &end, 10);
-    if (errno != 0 || end == s || *end != '\0' || v > UINT32_MAX) return -1;
-    *out = (uint32_t)v;
-    return 0;
-}
-
-static int parse_u64(const char *s, uint64_t *out) {
-    if (!s || !*s) return -1;
-    errno = 0;
-    char *end = NULL;
-    unsigned long long v = strtoull(s, &end, 10);
-    if (errno != 0 || end == s || *end != '\0') return -1;
-    *out = (uint64_t)v;
-    return 0;
-}
 
 static bool has_duplicate_id(const seen_job_t *arr, size_t n, const char *id) {
     for (size_t i = 0; i < n; i++) {
@@ -79,8 +42,8 @@ static int validate_queue(const char *path) {
             fclose(fp);
             return 1;
         }
-        trim_eol(line);
-        if (is_blank_or_comment(line)) continue;
+        rc_trim_eol(line);
+        if (rc_is_blank_or_comment(line)) continue;
 
         if (job_count >= MAX_JOBS) {
             fprintf(stderr, "line=%zu status=INVALID reason=max_jobs_exceeded max=%d\n", line_no, MAX_JOBS);
@@ -124,12 +87,12 @@ static int validate_queue(const char *path) {
 
         uint32_t prio = 0;
         uint64_t est = 0;
-        if (parse_u32(prio_s, &prio) != 0 || prio > MAX_PRIO) {
+        if (rc_parse_u32(prio_s, &prio) != 0 || prio > MAX_PRIO) {
             fprintf(stderr, "line=%zu job=%s status=INVALID reason=bad_priority\n", line_no, jid);
             invalid_lines++;
             continue;
         }
-        if (parse_u64(sec_s, &est) != 0 || est == 0 || est > MAX_SINGLE_JOB_SEC) {
+        if (rc_parse_u64(sec_s, &est) != 0 || est == 0 || est > MAX_SINGLE_JOB_SEC) {
             fprintf(stderr, "line=%zu job=%s status=INVALID reason=bad_est_sec\n", line_no, jid);
             invalid_lines++;
             continue;
