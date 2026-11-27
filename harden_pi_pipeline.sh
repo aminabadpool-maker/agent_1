@@ -178,3 +178,33 @@ rm -rf "$work_dir"
 
 echo "=== [6] Git & untracked files audit ==="
 git status -s
+
+# Guarded cleanup helper using safe_path_guard
+safe_rm_rf_guarded() {
+  local target_dir="${1:-}"
+  local allowed_root="${2:-}"
+  local repo_root
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [ -f "$script_dir/tools/safe_path_guard.c" ]; then
+    repo_root="$script_dir"
+  else
+    repo_root="$(cd "$script_dir/.." && pwd)"
+  fi
+  local guard_src="$repo_root/tools/safe_path_guard.c"
+  local guard_tmp="${TMPDIR:-/tmp}/agent1_safe_path_guard_$$"
+
+  [ -n "$target_dir" ] && [ -n "$allowed_root" ] || {
+    echo "[SAFE-RM BLOCK] Missing target_dir or allowed_root" >&2
+    return 1
+  }
+
+  gcc -std=c11 -O2 -Wall -Wextra -Werror "$guard_src" -o "$guard_tmp"
+  if ! "$guard_tmp" "$target_dir" "$allowed_root" >/dev/null; then
+    rm -f "$guard_tmp"
+    echo "[SAFE-RM BLOCK] Blocked rm -rf on '$target_dir' (root='$allowed_root')" >&2
+    return 1
+  fi
+  rm -f "$guard_tmp"
+  rm -rf "$target_dir"
+}

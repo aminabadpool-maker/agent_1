@@ -139,9 +139,42 @@ guard-check:
 		exit 1; \
 	fi
 	@echo "[GUARD-CHECK PASS]"
+	rm -f tools/pi_guard
 
 .PHONY: queue-check
 queue-check:
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -I./tools tools/render_queue.c tools/test_render_queue.c -o "$(TMPDIR:-./tools)/test_render_queue"
 	"$(TMPDIR:-./tools)/test_render_queue"
 	rm -f "$(TMPDIR:-./tools)/test_render_queue"
+
+.PHONY: safety-check
+safety-check:
+	@echo "[SAFETY-CHECK] Building & testing full 7-module C11 safety suite..."
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/safe_alloc_guard.c -o tools/safe_alloc_guard
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/safe_line_reader.c -o tools/safe_line_reader
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/safe_path_guard.c -o tools/safe_path_guard
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/resource_gate.c -o tools/resource_gate
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/job_budget_planner.c -o tools/job_budget_planner
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/xml_scene_guard.c -o tools/xml_scene_guard
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/timed_exec_guard.c -o tools/timed_exec_guard
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/render_artifact_guard.c -o tools/render_artifact_guard
+	@./tools/safe_alloc_guard --test
+	@./tools/safe_line_reader --test
+	@./tools/safe_path_guard --test
+	@./tools/resource_gate --test
+	@./tools/job_budget_planner --test
+	@./tools/xml_scene_guard --test
+	@./tools/timed_exec_guard --test
+	@./tools/render_artifact_guard --test
+	@rm -f tools/safe_alloc_guard tools/safe_line_reader tools/safe_path_guard \
+	       tools/resource_gate tools/job_budget_planner tools/xml_scene_guard \
+	       tools/timed_exec_guard tools/render_artifact_guard
+	@echo "[SAFETY-CHECK] All 7 C11 safety modules passed."
+
+.PHONY: safety-stress
+safety-stress:
+	@echo "[SAFETY-STRESS] Compiling & running 1000+ edge-case C11 stress checks..."
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/heavy_safety_stress.c -o tools/heavy_safety_stress
+	@AGENT1_TOOLS_DIR=tools ./tools/heavy_safety_stress
+	@rm -f tools/heavy_safety_stress
+	@echo "[SAFETY-STRESS] Heavy C11 stress verification passed."
