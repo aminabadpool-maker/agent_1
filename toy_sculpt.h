@@ -38,7 +38,10 @@ typedef enum {
     SCULPT_KEY_SAFE_RESET,
     SCULPT_KEY_STARTER,
     SCULPT_KEY_STATUS,
-    SCULPT_KEY_TOGGLE_MAT
+    SCULPT_KEY_TOGGLE_MAT,
+    SCULPT_KEY_RING,
+    SCULPT_KEY_PULL_CHUNK,
+    SCULPT_KEY_POP_CHUNK
 } SculptShortcut;
 
 typedef struct {
@@ -65,6 +68,9 @@ int sculpt_undo(SculptScene *scene);
 int sculpt_clear(SculptScene *scene);
 int sculpt_reset(SculptScene *scene);
 int sculpt_spawn_starter(SculptScene *scene);
+int sculpt_spawn_ring(SculptScene *scene, int segments, float radius, float piece_size);
+int sculpt_pull_chunk(SculptScene *scene, float dx, float dy, float dz);
+size_t sculpt_pop_chunk(SculptScene *scene);
 size_t sculpt_active_count(const SculptScene *scene);
 void sculpt_print_status(const SculptScene *scene);
 

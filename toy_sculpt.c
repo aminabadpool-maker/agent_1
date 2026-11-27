@@ -1,4 +1,5 @@
 #include "toy_sculpt.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -301,6 +302,54 @@ void sculpt_smooth_step(SculptScene *scene, float amount) {
     }
 }
 
+
+int sculpt_spawn_ring(SculptScene *scene, int segments, float radius, float piece_size) {
+    if (!scene) return -1;
+    if (segments < 3) segments = 8;
+    if (segments > 64) segments = 64;
+    if (radius <= 0.05f) radius = 1.2f;
+    if (piece_size <= 0.02f) piece_size = 0.28f;
+
+    if (sculpt_checkpoint(scene) != 0) return -1;
+    float half = piece_size * 0.5f;
+    for (int i = 0; i < segments; ++i) {
+        float angle = (2.0f * 3.14159265f * (float)i) / (float)segments;
+        float cx = cosf(angle) * radius;
+        float cy = sinf(angle) * radius;
+        SculptBox seg = {cx - half, cx + half, cy - half, cy + half, -half, half};
+        scene->last_box = seg;
+        if (emit_box_tris(scene, seg) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int sculpt_pull_chunk(SculptScene *scene, float dx, float dy, float dz) {
+    if (!scene) return -1;
+    SculptBox moved = {
+        scene->last_box.min_x + dx, scene->last_box.max_x + dx,
+        scene->last_box.min_y + dy, scene->last_box.max_y + dy,
+        scene->last_box.min_z + dz, scene->last_box.max_z + dz
+    };
+    return sculpt_add_box(scene, moved);
+}
+
+size_t sculpt_pop_chunk(SculptScene *scene) {
+    if (!scene || scene->count == 0 || !scene->tris) return 0;
+    if (sculpt_checkpoint(scene) != 0) return 0;
+
+    size_t start = (scene->count >= 12) ? (scene->count - 12) : 0;
+    size_t removed = 0;
+    for (size_t i = scene->count; i > start; --i) {
+        if (scene->tris[i - 1].active) {
+            scene->tris[i - 1].active = 0;
+            removed++;
+        }
+    }
+    return removed;
+}
+
 SculptShortcut sculpt_map_char(char ch) {
     if (ch >= 'A' && ch <= 'Z') {
         ch = (char)(ch - 'A' + 'a');
@@ -320,6 +369,9 @@ SculptShortcut sculpt_map_char(char ch) {
         case 'i': return SCULPT_KEY_STATUS;
         case 'm':
         case 't': return SCULPT_KEY_TOGGLE_MAT;
+        case 'o': return SCULPT_KEY_RING;
+        case 'p': return SCULPT_KEY_PULL_CHUNK;
+        case 'k': return SCULPT_KEY_POP_CHUNK;
         default:  return SCULPT_KEY_NONE;
     }
 }
@@ -350,6 +402,13 @@ int sculpt_handle_shortcut(SculptScene *scene, SculptShortcut key) {
             return 0;
         case SCULPT_KEY_TOGGLE_MAT:
             sculpt_toggle_material(scene);
+            return 0;
+        case SCULPT_KEY_RING:
+            return sculpt_spawn_ring(scene, 8, 1.2f, 0.28f);
+        case SCULPT_KEY_PULL_CHUNK:
+            return sculpt_pull_chunk(scene, 0.45f, 0.20f, 0.0f);
+        case SCULPT_KEY_POP_CHUNK:
+            (void)sculpt_pop_chunk(scene);
             return 0;
         case SCULPT_KEY_NONE:
         default:

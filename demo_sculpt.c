@@ -17,6 +17,13 @@ int main(void) {
     sculpt_run_tutorial_35s(&scene);
     sculpt_handle_char(&scene, '?');
 
+    sculpt_handle_char(&scene, 'o');
+    sculpt_handle_char(&scene, '?');
+    sculpt_handle_char(&scene, 'p');
+    sculpt_handle_char(&scene, '?');
+    sculpt_handle_char(&scene, 'k');
+    sculpt_handle_char(&scene, '?');
+
     sculpt_scene_free(&scene);
     return 0;
 }
