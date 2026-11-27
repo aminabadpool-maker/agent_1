@@ -972,13 +972,19 @@ static int load_scene_xml(Scene *s, const char *path) {
 }
 
 static void clear_buffers(unsigned char r, unsigned char g, unsigned char b) {
-    for (int y = 0; y < g_ren_h; y++) {
-        for (int x = 0; x < g_ren_w; x++) {
-            FB_AT(x, y, 0) = r;
-            FB_AT(x, y, 1) = g;
-            FB_AT(x, y, 2) = b;
-            ZB_AT(x, y) = FLT_MAX;
+    size_t npix = (size_t)g_ren_w * (size_t)g_ren_h;
+    if (r == g && g == b) {
+        memset(fb_flat, r, npix * 3u);
+    } else {
+        for (size_t i = 0; i < npix; i++) {
+            size_t base = i * 3u;
+            fb_flat[base + 0u] = r;
+            fb_flat[base + 1u] = g;
+            fb_flat[base + 2u] = b;
         }
+    }
+    for (size_t i = 0; i < npix; i++) {
+        zbuf_flat[i] = FLT_MAX;
     }
 }
 
