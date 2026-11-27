@@ -139,3 +139,9 @@ guard-check:
 		exit 1; \
 	fi
 	@echo "[GUARD-CHECK PASS]"
+
+.PHONY: queue-check
+queue-check:
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -I./tools tools/render_queue.c tools/test_render_queue.c -o "$(TMPDIR:-./tools)/test_render_queue"
+	"$(TMPDIR:-./tools)/test_render_queue"
+	rm -f "$(TMPDIR:-./tools)/test_render_queue"
