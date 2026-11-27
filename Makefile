@@ -21,7 +21,7 @@ TELEMETRY_LOG ?= renders/pi_run/telemetry.jsonl
 
 TARGETS := tools/pi_budget tools/pi_lib_demo tools/pi_telemetry tools/pi_guard tools/pi_stress
 
-.PHONY: all check health plan telemetry log-summary guard stress safe-run clean e2e-check mb-check full-check
+.PHONY: all check health plan telemetry log-summary guard stress safe-run clean e2e-check mb-check full-check stress-full-check
 
 all: $(TARGETS)
 
@@ -197,3 +197,6 @@ mb-check:
 
 full-check: safety-check e2e-check mb-check
 	@echo "[FULL-CHECK] All safety, e2e, and mini_blender checks passed."
+
+stress-full-check: full-check safety-stress
+	@echo "[STRESS-FULL-CHECK] Full pipeline and heavy C11 stress checks passed."
