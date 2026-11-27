@@ -1147,7 +1147,15 @@ static int save_ppm(const char *path) {
         fprintf(stderr, "Error: cannot create '%s': %s\n", tmp_path, strerror(errno));
         return 0;
     }
-    if (fprintf(f, "P6\n%d %d\n255\n", g_ren_w, g_ren_h) < 0) {
+    char hdr[64];
+    int hdr_len = snprintf(hdr, sizeof(hdr), "P6\n%d %d\n255\n", g_ren_w, g_ren_h);
+    if (hdr_len <= 0 || (size_t)hdr_len >= sizeof(hdr)) {
+        fclose(f);
+        remove(tmp_path);
+        return 0;
+    }
+    (void)setvbuf(f, NULL, _IOFBF, 65536u);
+    if (fwrite(hdr, 1, (size_t)hdr_len, f) != (size_t)hdr_len) {
         fclose(f);
         remove(tmp_path);
         return 0;
