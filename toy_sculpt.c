@@ -350,6 +350,44 @@ size_t sculpt_pop_chunk(SculptScene *scene) {
     return removed;
 }
 
+
+int sculpt_slice_layers(SculptScene *scene, SculptBox raw_box, int layers, float gap) {
+    if (!scene) return -1;
+    if (layers < 2) layers = 2;
+    if (layers > 256) layers = 256;
+    if (gap < 0.0f) gap = 0.0f;
+    if (gap > 0.2f) gap = 0.2f;
+
+    if (sculpt_checkpoint(scene) != 0) return -1;
+
+    SculptBox box = normalize_box(raw_box);
+    float total_h = box.max_y - box.min_y;
+    if (total_h < 0.001f) total_h = 1.0f;
+
+    float total_gap = gap * (float)(layers - 1);
+    float usable_h = total_h - total_gap;
+    if (usable_h < 0.01f * (float)layers) {
+        gap = 0.0f;
+        usable_h = total_h;
+    }
+
+    float sheet_h = usable_h / (float)layers;
+    float cur_y = box.min_y;
+
+    for (int i = 0; i < layers; ++i) {
+        SculptBox sheet = {
+            box.min_x, box.max_x,
+            cur_y, cur_y + sheet_h,
+            box.min_z, box.max_z
+        };
+        scene->last_box = sheet;
+        if (emit_box_tris(scene, sheet) != 0) {
+            return -1;
+        }
+        cur_y += sheet_h + gap;
+    }
+    return 0;
+}
 SculptShortcut sculpt_map_char(char ch) {
     if (ch >= 'A' && ch <= 'Z') {
         ch = (char)(ch - 'A' + 'a');
@@ -372,6 +410,7 @@ SculptShortcut sculpt_map_char(char ch) {
         case 'o': return SCULPT_KEY_RING;
         case 'p': return SCULPT_KEY_PULL_CHUNK;
         case 'k': return SCULPT_KEY_POP_CHUNK;
+        case 'l': return SCULPT_KEY_SLICE_LAYERS;
         default:  return SCULPT_KEY_NONE;
     }
 }
@@ -410,6 +449,8 @@ int sculpt_handle_shortcut(SculptScene *scene, SculptShortcut key) {
         case SCULPT_KEY_POP_CHUNK:
             (void)sculpt_pop_chunk(scene);
             return 0;
+        case SCULPT_KEY_SLICE_LAYERS:
+            return sculpt_slice_layers(scene, scene->cube, 12, 0.01f);
         case SCULPT_KEY_NONE:
         default:
             return 0;
