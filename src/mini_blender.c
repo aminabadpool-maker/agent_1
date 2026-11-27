@@ -1016,6 +1016,12 @@ static void raster_tri(
     float acc_g = ambient + tri->emit;
     float acc_b = ambient + tri->emit;
 
+    int has_spec = (light_count > 0 && tri->spec > 0.0f) ? 1 : 0;
+    Vec3 view_dir = {0.0f, 0.0f, 0.0f};
+    if (has_spec) {
+        view_dir = v3_norm(v3_sub(cam->pos, centroid));
+    }
+
     for (int i = 0; i < light_count; i++) {
         Vec3 ldir = v3_norm(v3_sub(lights[i].pos, centroid));
         float ndotl = v3_dot(n, ldir);
@@ -1023,8 +1029,7 @@ static void raster_tri(
         float diff = ndotl * lights[i].intensity;
 
         float spec_term = 0.0f;
-        if (ndotl > 0.0f && tri->spec > 0.0f) {
-            Vec3 view_dir = v3_norm(v3_sub(cam->pos, centroid));
+        if (ndotl > 0.0f && has_spec) {
             Vec3 half_v = v3_norm(v3_add(ldir, view_dir));
             float nh = v3_dot(n, half_v);
             if (nh > 0.0f) {
