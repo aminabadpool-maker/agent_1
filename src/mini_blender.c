@@ -1059,6 +1059,10 @@ static void raster_tri(
     int min_y = (int)floorf(fminf(sy0, fminf(sy1, sy2)));
     int max_y = (int)ceilf(fmaxf(sy0, fmaxf(sy1, sy2)));
 
+    if (max_x < 0 || min_x >= g_ren_w || max_y < 0 || min_y >= g_ren_h) {
+        return;
+    }
+
     if (min_x < 0) min_x = 0;
     if (max_x >= g_ren_w) max_x = g_ren_w - 1;
     if (min_y < 0) min_y = 0;
