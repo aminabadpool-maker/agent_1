@@ -81,6 +81,8 @@ static int g_ren_w = W;
 static int g_ren_h = H;
 static unsigned char *fb_flat = NULL;
 static float *zbuf_flat = NULL;
+static Vec3 *g_anim_v = NULL;
+static int g_anim_v_cap = 0;
 
 static int mb_alloc_buffers(int w, int h) {
     if (w < 16 || h < 16 || w > 4096 || h > 4096) return 0;
@@ -105,8 +107,11 @@ static int mb_alloc_buffers(int w, int h) {
 static void mb_free_buffers(void) {
     free(fb_flat);
     free(zbuf_flat);
+    free(g_anim_v);
     fb_flat = NULL;
     zbuf_flat = NULL;
+    g_anim_v = NULL;
+    g_anim_v_cap = 0;
 }
 
 #define FB_AT(x, y, c) (fb_flat[((size_t)(y) * (size_t)g_ren_w + (size_t)(x)) * 3u + (size_t)(c)])
@@ -1176,8 +1181,14 @@ static int render_frame(
         frame_cam.yaw += phase;
     }
 
-    Vec3 *anim_v = malloc(sizeof(Vec3) * (size_t)(s->vcount > 0 ? s->vcount : 1));
-    if (!anim_v) return 0;
+    int need_v = (s->vcount > 0) ? s->vcount : 1;
+    if (need_v > g_anim_v_cap) {
+        Vec3 *grown = realloc(g_anim_v, sizeof(Vec3) * (size_t)need_v);
+        if (!grown) return 0;
+        g_anim_v = grown;
+        g_anim_v_cap = need_v;
+    }
+    Vec3 *anim_v = g_anim_v;
 
     for (int i = 0; i < s->vcount; i++) {
         Vec3 v = v3_scale(s->verts[i], scene_scale);
@@ -1223,7 +1234,6 @@ static int render_frame(
         }
     }
 
-    free(anim_v);
     return save_ppm(out_path);
 }
 
