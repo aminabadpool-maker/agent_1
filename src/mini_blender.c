@@ -1075,32 +1075,52 @@ static void raster_tri(
     if (max_y >= g_ren_h) max_y = g_ren_h - 1;
 
     float inv_area = 1.0f / area;
+    int pos_area = (area > 0.0f) ? 1 : 0;
+
+    float start_x = (float)min_x + 0.5f;
+    float start_y = (float)min_y + 0.5f;
+
+    float w0_row = edge_fn(sx1, sy1, sx2, sy2, start_x, start_y);
+    float w1_row = edge_fn(sx2, sy2, sx0, sy0, start_x, start_y);
+    float w2_row = edge_fn(sx0, sy0, sx1, sy1, start_x, start_y);
+
+    float dw0_dx = (sy2 - sy1);
+    float dw1_dx = (sy0 - sy2);
+    float dw2_dx = (sy1 - sy0);
+
+    float dw0_dy = (sx1 - sx2);
+    float dw1_dy = (sx2 - sx0);
+    float dw2_dy = (sx0 - sx1);
 
     for (int y = min_y; y <= max_y; y++) {
+        float w0 = w0_row;
+        float w1 = w1_row;
+        float w2 = w2_row;
+
         for (int x = min_x; x <= max_x; x++) {
-            float px = (float)x + 0.5f;
-            float py = (float)y + 0.5f;
+            int inside = pos_area ? (w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f)
+                                  : (w0 <= 0.0f && w1 <= 0.0f && w2 <= 0.0f);
+            if (inside) {
+                float bw0 = w0 * inv_area;
+                float bw1 = w1 * inv_area;
+                float bw2 = w2 * inv_area;
 
-            float w0 = edge_fn(sx1, sy1, sx2, sy2, px, py);
-            float w1 = edge_fn(sx2, sy2, sx0, sy0, px, py);
-            float w2 = edge_fn(sx0, sy0, sx1, sy1, px, py);
-
-            int inside = (area > 0.0f) ? (w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f)
-                                       : (w0 <= 0.0f && w1 <= 0.0f && w2 <= 0.0f);
-            if (!inside) continue;
-
-            w0 *= inv_area;
-            w1 *= inv_area;
-            w2 *= inv_area;
-
-            float z = w0 * z0 + w1 * z1 + w2 * z2;
-            if (z < ZB_AT(x, y)) {
-                ZB_AT(x, y) = z;
-                FB_AT(x, y, 0) = sr;
-                FB_AT(x, y, 1) = sg;
-                FB_AT(x, y, 2) = sb;
+                float z = bw0 * z0 + bw1 * z1 + bw2 * z2;
+                if (z < ZB_AT(x, y)) {
+                    ZB_AT(x, y) = z;
+                    FB_AT(x, y, 0) = sr;
+                    FB_AT(x, y, 1) = sg;
+                    FB_AT(x, y, 2) = sb;
+                }
             }
+            w0 += dw0_dx;
+            w1 += dw1_dx;
+            w2 += dw2_dx;
         }
+
+        w0_row += dw0_dy;
+        w1_row += dw1_dy;
+        w2_row += dw2_dy;
     }
 }
 
