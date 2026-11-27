@@ -32,7 +32,6 @@ static int push_tri(SculptScene *scene, SculptVec3 a, SculptVec3 b, SculptVec3 c
     return 0;
 }
 
-/* Emit a simple 12-triangle box so kids/agents can build & erase with boxes */
 static int emit_box_tris(SculptScene *scene, SculptBox box) {
     float x0 = box.min_x, x1 = box.max_x;
     float y0 = box.min_y, y1 = box.max_y;
@@ -43,13 +42,10 @@ static int emit_box_tris(SculptScene *scene, SculptBox box) {
     SculptVec3 p001 = {x0, y0, z1}, p101 = {x1, y0, z1};
     SculptVec3 p111 = {x1, y1, z1}, p011 = {x0, y1, z1};
 
-    /* Front (+z) & Back (-z) */
     if (push_tri(scene, p001, p101, p111) || push_tri(scene, p001, p111, p011)) return -1;
     if (push_tri(scene, p100, p000, p010) || push_tri(scene, p100, p010, p110)) return -1;
-    /* Left (-x) & Right (+x) */
     if (push_tri(scene, p000, p001, p011) || push_tri(scene, p000, p011, p010)) return -1;
     if (push_tri(scene, p101, p100, p110) || push_tri(scene, p101, p110, p111)) return -1;
-    /* Top (+y) & Bottom (-y) */
     if (push_tri(scene, p011, p111, p110) || push_tri(scene, p011, p110, p010)) return -1;
     if (push_tri(scene, p000, p100, p101) || push_tri(scene, p000, p101, p001)) return -1;
 
@@ -63,7 +59,6 @@ static int point_inside_box(SculptVec3 p, SculptBox box) {
 }
 
 static int tri_inside_box(SculptTri t, SculptBox box) {
-    /* If centroid or at least two vertices fall inside the eraser cube, carve it out */
     SculptVec3 cen = {
         (t.a.x + t.b.x + t.c.x) / 3.0f,
         (t.a.y + t.b.y + t.c.y) / 3.0f,
@@ -98,6 +93,9 @@ int sculpt_scene_init(SculptScene *scene, size_t initial_cap) {
     }
     scene->cube_mode = SCULPT_MODE_ADD;
     scene->smooth_strength = 0.12f;
+    SculptBox starter = {-0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f};
+    scene->last_box = starter;
+    scene->cube = starter;
     return 0;
 }
 
@@ -134,6 +132,23 @@ int sculpt_undo(SculptScene *scene) {
     return 0;
 }
 
+int sculpt_clear(SculptScene *scene) {
+    if (!scene) return -1;
+    if (sculpt_checkpoint(scene) != 0) return -1;
+    scene->count = 0;
+    return 0;
+}
+
+int sculpt_reset(SculptScene *scene) {
+    if (!scene) return -1;
+    if (sculpt_clear(scene) != 0) return -1;
+    scene->cube_mode = SCULPT_MODE_ADD;
+    SculptBox starter = {-0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f};
+    scene->last_box = starter;
+    scene->cube = starter;
+    return emit_box_tris(scene, starter);
+}
+
 void sculpt_set_cube_mode(SculptScene *scene, SculptCubeMode mode) {
     if (!scene) return;
     scene->cube_mode = mode;
@@ -146,7 +161,8 @@ void sculpt_set_cube_box(SculptScene *scene, SculptBox box) {
 
 int sculpt_add_box(SculptScene *scene, SculptBox box) {
     if (!scene) return -1;
-    sculpt_checkpoint(scene);
+    if (sculpt_checkpoint(scene) != 0) return -1;
+    scene->last_box = box;
     return emit_box_tris(scene, box);
 }
 
@@ -162,11 +178,12 @@ int sculpt_clone_box(SculptScene *scene, SculptBox src, float dx, float dy, floa
 
 size_t sculpt_apply_cube(SculptScene *scene) {
     if (!scene) return 0;
-    sculpt_checkpoint(scene);
+    if (sculpt_checkpoint(scene) != 0) return 0;
 
     if (scene->cube_mode == SCULPT_MODE_ADD) {
         if (emit_box_tris(scene, scene->cube) == 0) {
-            return 12; /* 12 triangles added */
+            scene->last_box = scene->cube;
+            return 12;
         }
         return 0;
     }
@@ -183,7 +200,7 @@ size_t sculpt_apply_cube(SculptScene *scene) {
 
 void sculpt_smooth_step(SculptScene *scene, float amount) {
     if (!scene || scene->count == 0) return;
-    sculpt_checkpoint(scene);
+    if (sculpt_checkpoint(scene) != 0) return;
 
     SculptVec3 sum = {0.0f, 0.0f, 0.0f};
     size_t active_tris = 0;
@@ -210,30 +227,49 @@ void sculpt_smooth_step(SculptScene *scene, float amount) {
     }
 }
 
-/* ~35s 4-step friendly starter: simple blocks -> clone/attach -> smooth -> eraser cube */
+int sculpt_handle_shortcut(SculptScene *scene, SculptShortcut key) {
+    if (!scene) return -1;
+    switch (key) {
+        case SCULPT_KEY_CLONE:
+            return sculpt_clone_box(scene, scene->last_box, 0.65f, 0.0f, 0.0f);
+        case SCULPT_KEY_ATTACH_ADD:
+            sculpt_set_cube_mode(scene, SCULPT_MODE_ADD);
+            return sculpt_add_box(scene, scene->cube);
+        case SCULPT_KEY_ERASE_CUBE:
+            sculpt_set_cube_mode(scene, SCULPT_MODE_ERASE);
+            return (sculpt_apply_cube(scene) > 0 || scene->count == 0) ? 0 : 0;
+        case SCULPT_KEY_SMOOTH:
+            sculpt_smooth_step(scene, scene->smooth_strength);
+            return 0;
+        case SCULPT_KEY_UNDO:
+            return sculpt_undo(scene);
+        case SCULPT_KEY_SAFE_RESET:
+            return sculpt_reset(scene);
+        case SCULPT_KEY_NONE:
+        default:
+            return 0;
+    }
+}
+
 void sculpt_run_tutorial_35s(SculptScene *scene) {
     if (!scene) return;
 
-    /* 0-10s: Start with a simple horse/dog-like block silhouette */
     SculptBox torso = {-1.0f, 1.0f, -0.4f, 0.4f, -0.5f, 0.5f};
     SculptBox neck  = { 0.6f, 1.2f,  0.2f, 1.0f, -0.3f, 0.3f};
     sculpt_add_box(scene, torso);
     sculpt_add_box(scene, neck);
     printf("[0-10s] Step 1: Simple blocks placed (doesn't have to be perfect yet!).\n");
 
-    /* 10-20s: Clone & attach another piece (e.g., head/ear block) */
     SculptBox head_src = {0.9f, 1.6f, 0.8f, 1.3f, -0.25f, 0.25f};
     sculpt_clone_box(scene, head_src, 0.0f, 0.0f, 0.0f);
     printf("[10-20s] Step 2: Cloned & attached a new block onto the form.\n");
 
-    /* 20-30s: Gently smooth so edges feel friendly */
     sculpt_smooth_step(scene, scene->smooth_strength);
     printf("[20-30s] Step 3: Applied gentle smooth step.\n");
 
-    /* 30-40s: Magic cube in ERASER mode trims an extra corner safely */
     SculptBox eraser_tip = {1.35f, 1.65f, 1.05f, 1.35f, -0.3f, 0.3f};
     sculpt_set_cube_mode(scene, SCULPT_MODE_ERASE);
     sculpt_set_cube_box(scene, eraser_tip);
     size_t carved = sculpt_apply_cube(scene);
-    printf("[30-40s] Step 4: Eraser cube trimmed %zu triangles (undo ready).\n", carved);
+    printf("[30-40s] Step 4: Eraser cube trimmed %zu triangles (safe reset/undo ready).\n", carved);
 }
