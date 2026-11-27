@@ -11,12 +11,10 @@ int main(void) {
     sculpt_handle_char(&scene, 'b');
     sculpt_handle_char(&scene, '?');
 
-    sculpt_run_tutorial_35s(&scene);
+    sculpt_handle_char(&scene, 'm');
     sculpt_handle_char(&scene, '?');
 
-    sculpt_handle_char(&scene, 'c');
-    sculpt_handle_char(&scene, 'x');
-    sculpt_handle_char(&scene, 'u');
+    sculpt_run_tutorial_35s(&scene);
     sculpt_handle_char(&scene, '?');
 
     sculpt_scene_free(&scene);

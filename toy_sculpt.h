@@ -24,6 +24,11 @@ typedef enum {
 } SculptCubeMode;
 
 typedef enum {
+    SCULPT_MAT_WOOD = 0,
+    SCULPT_MAT_STONE = 1
+} SculptMaterial;
+
+typedef enum {
     SCULPT_KEY_NONE = 0,
     SCULPT_KEY_CLONE,
     SCULPT_KEY_ATTACH_ADD,
@@ -32,7 +37,8 @@ typedef enum {
     SCULPT_KEY_UNDO,
     SCULPT_KEY_SAFE_RESET,
     SCULPT_KEY_STARTER,
-    SCULPT_KEY_STATUS
+    SCULPT_KEY_STATUS,
+    SCULPT_KEY_TOGGLE_MAT
 } SculptShortcut;
 
 typedef struct {
@@ -46,6 +52,7 @@ typedef struct {
     int has_prev;
 
     SculptCubeMode cube_mode;
+    SculptMaterial material;
     SculptBox cube;
     SculptBox last_box;
     float smooth_strength;
@@ -60,6 +67,10 @@ int sculpt_reset(SculptScene *scene);
 int sculpt_spawn_starter(SculptScene *scene);
 size_t sculpt_active_count(const SculptScene *scene);
 void sculpt_print_status(const SculptScene *scene);
+
+void sculpt_set_material(SculptScene *scene, SculptMaterial mat);
+void sculpt_toggle_material(SculptScene *scene);
+const char *sculpt_material_name(SculptMaterial mat);
 
 void sculpt_set_cube_mode(SculptScene *scene, SculptCubeMode mode);
 void sculpt_set_cube_box(SculptScene *scene, SculptBox box);

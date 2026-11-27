@@ -112,6 +112,7 @@ int sculpt_scene_init(SculptScene *scene, size_t initial_cap) {
         scene->capacity = initial_cap;
     }
     scene->cube_mode = SCULPT_MODE_ADD;
+    scene->material = SCULPT_MAT_WOOD;
     scene->smooth_strength = 0.12f;
     SculptBox starter = {-0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f};
     scene->last_box = starter;
@@ -163,6 +164,7 @@ int sculpt_reset(SculptScene *scene) {
     if (!scene) return -1;
     if (sculpt_clear(scene) != 0) return -1;
     scene->cube_mode = SCULPT_MODE_ADD;
+    scene->material = SCULPT_MAT_WOOD;
     SculptBox starter = {-0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f};
     scene->last_box = starter;
     scene->cube = starter;
@@ -186,12 +188,33 @@ size_t sculpt_active_count(const SculptScene *scene) {
     return active;
 }
 
+const char *sculpt_material_name(SculptMaterial mat) {
+    switch (mat) {
+        case SCULPT_MAT_STONE: return "STONE";
+        case SCULPT_MAT_WOOD:
+        default:               return "WOOD";
+    }
+}
+
+void sculpt_set_material(SculptScene *scene, SculptMaterial mat) {
+    if (!scene) return;
+    if (mat == SCULPT_MAT_WOOD || mat == SCULPT_MAT_STONE) {
+        scene->material = mat;
+    }
+}
+
+void sculpt_toggle_material(SculptScene *scene) {
+    if (!scene) return;
+    scene->material = (scene->material == SCULPT_MAT_WOOD) ? SCULPT_MAT_STONE : SCULPT_MAT_WOOD;
+}
+
 void sculpt_print_status(const SculptScene *scene) {
     if (!scene) return;
     const char *mode_name = (scene->cube_mode == SCULPT_MODE_ERASE) ? "ERASE" : "ADD";
-    printf("[Status] active=%zu / total=%zu | mode=%s | undo_ready=%s\n",
+    printf("[Status] active=%zu / total=%zu | mat=%s | mode=%s | undo_ready=%s\n",
            sculpt_active_count(scene),
            scene->count,
+           sculpt_material_name(scene->material),
            mode_name,
            scene->has_prev ? "yes" : "no");
 }
@@ -295,6 +318,8 @@ SculptShortcut sculpt_map_char(char ch) {
         case '1': return SCULPT_KEY_STARTER;
         case '?':
         case 'i': return SCULPT_KEY_STATUS;
+        case 'm':
+        case 't': return SCULPT_KEY_TOGGLE_MAT;
         default:  return SCULPT_KEY_NONE;
     }
 }
@@ -322,6 +347,9 @@ int sculpt_handle_shortcut(SculptScene *scene, SculptShortcut key) {
             return sculpt_spawn_starter(scene);
         case SCULPT_KEY_STATUS:
             sculpt_print_status(scene);
+            return 0;
+        case SCULPT_KEY_TOGGLE_MAT:
+            sculpt_toggle_material(scene);
             return 0;
         case SCULPT_KEY_NONE:
         default:
