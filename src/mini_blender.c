@@ -1055,12 +1055,18 @@ static void raster_tri(
     unsigned char sg = clamp_u8((float)tri->g * acc_g);
     unsigned char sb = clamp_u8((float)tri->b * acc_b);
 
-    float sx0 = g_ren_w * 0.5f + ((p0.x - cam->pos.x) * cam->fov) / z0;
-    float sy0 = g_ren_h * 0.5f - ((p0.y - cam->pos.y) * cam->fov) / z0;
-    float sx1 = g_ren_w * 0.5f + ((p1.x - cam->pos.x) * cam->fov) / z1;
-    float sy1 = g_ren_h * 0.5f - ((p1.y - cam->pos.y) * cam->fov) / z1;
-    float sx2 = g_ren_w * 0.5f + ((p2.x - cam->pos.x) * cam->fov) / z2;
-    float sy2 = g_ren_h * 0.5f - ((p2.y - cam->pos.y) * cam->fov) / z2;
+    float half_w = (float)g_ren_w * 0.5f;
+    float half_h = (float)g_ren_h * 0.5f;
+    float k0 = cam->fov / z0;
+    float k1 = cam->fov / z1;
+    float k2 = cam->fov / z2;
+
+    float sx0 = half_w + (p0.x - cam->pos.x) * k0;
+    float sy0 = half_h - (p0.y - cam->pos.y) * k0;
+    float sx1 = half_w + (p1.x - cam->pos.x) * k1;
+    float sy1 = half_h - (p1.y - cam->pos.y) * k1;
+    float sx2 = half_w + (p2.x - cam->pos.x) * k2;
+    float sy2 = half_h - (p2.y - cam->pos.y) * k2;
 
     if (!isfinite(sx0) || !isfinite(sy0) || !isfinite(sx1) || !isfinite(sy1) || !isfinite(sx2) || !isfinite(sy2)) {
         return;
