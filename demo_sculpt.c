@@ -27,6 +27,9 @@ int main(void) {
     sculpt_handle_char(&scene, 'l');
     sculpt_handle_char(&scene, '?');
 
+    sculpt_handle_char(&scene, 'n');
+    sculpt_handle_char(&scene, '?');
+
     sculpt_scene_free(&scene);
     return 0;
 }

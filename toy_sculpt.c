@@ -388,6 +388,16 @@ int sculpt_slice_layers(SculptScene *scene, SculptBox raw_box, int layers, float
     }
     return 0;
 }
+
+int sculpt_new_scene(SculptScene *scene) {
+    if (!scene) return -1;
+    if (sculpt_clear(scene) != 0) return -1;
+    scene->cube_mode = SCULPT_MODE_ADD;
+    SculptBox fresh_cube = {-0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f};
+    scene->cube = fresh_cube;
+    scene->last_box = fresh_cube;
+    return emit_box_tris(scene, fresh_cube);
+}
 SculptShortcut sculpt_map_char(char ch) {
     if (ch >= 'A' && ch <= 'Z') {
         ch = (char)(ch - 'A' + 'a');
@@ -411,6 +421,7 @@ SculptShortcut sculpt_map_char(char ch) {
         case 'p': return SCULPT_KEY_PULL_CHUNK;
         case 'k': return SCULPT_KEY_POP_CHUNK;
         case 'l': return SCULPT_KEY_SLICE_LAYERS;
+        case 'n': return SCULPT_KEY_NEW_SCENE;
         default:  return SCULPT_KEY_NONE;
     }
 }
@@ -451,6 +462,8 @@ int sculpt_handle_shortcut(SculptScene *scene, SculptShortcut key) {
             return 0;
         case SCULPT_KEY_SLICE_LAYERS:
             return sculpt_slice_layers(scene, scene->cube, 12, 0.01f);
+        case SCULPT_KEY_NEW_SCENE:
+            return sculpt_new_scene(scene);
         case SCULPT_KEY_NONE:
         default:
             return 0;
