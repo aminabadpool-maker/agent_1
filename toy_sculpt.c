@@ -3,12 +3,29 @@
 #include <stdlib.h>
 #include <string.h>
 
+static float clamp_float(float val, float lo, float hi) {
+    if (val < lo) return lo;
+    if (val > hi) return hi;
+    return val;
+}
+
+static SculptBox normalize_box(SculptBox b) {
+    if (b.min_x > b.max_x) { float t = b.min_x; b.min_x = b.max_x; b.max_x = t; }
+    if (b.min_y > b.max_y) { float t = b.min_y; b.min_y = b.max_y; b.max_y = t; }
+    if (b.min_z > b.max_z) { float t = b.min_z; b.min_z = b.max_z; b.max_z = t; }
+    return b;
+}
+
 static int ensure_capacity(SculptScene *scene, size_t needed) {
+    if (!scene) return -1;
     if (needed <= scene->capacity) {
         return 0;
     }
     size_t new_cap = scene->capacity ? scene->capacity * 2 : 64;
     while (new_cap < needed) {
+        if (new_cap > (size_t)-1 / 2) {
+            return -1;
+        }
         new_cap *= 2;
     }
     SculptTri *grown = (SculptTri *)realloc(scene->tris, new_cap * sizeof(SculptTri));
@@ -21,6 +38,7 @@ static int ensure_capacity(SculptScene *scene, size_t needed) {
 }
 
 static int push_tri(SculptScene *scene, SculptVec3 a, SculptVec3 b, SculptVec3 c) {
+    if (!scene) return -1;
     if (ensure_capacity(scene, scene->count + 1) != 0) {
         return -1;
     }
@@ -32,7 +50,9 @@ static int push_tri(SculptScene *scene, SculptVec3 a, SculptVec3 b, SculptVec3 c
     return 0;
 }
 
-static int emit_box_tris(SculptScene *scene, SculptBox box) {
+static int emit_box_tris(SculptScene *scene, SculptBox raw_box) {
+    if (!scene) return -1;
+    SculptBox box = normalize_box(raw_box);
     float x0 = box.min_x, x1 = box.max_x;
     float y0 = box.min_y, y1 = box.max_y;
     float z0 = box.min_z, z1 = box.max_z;
@@ -58,7 +78,8 @@ static int point_inside_box(SculptVec3 p, SculptBox box) {
            (p.z >= box.min_z && p.z <= box.max_z);
 }
 
-static int tri_inside_box(SculptTri t, SculptBox box) {
+static int tri_inside_box(SculptTri t, SculptBox raw_box) {
+    SculptBox box = normalize_box(raw_box);
     SculptVec3 cen = {
         (t.a.x + t.b.x + t.c.x) / 3.0f,
         (t.a.y + t.b.y + t.c.y) / 3.0f,
@@ -74,12 +95,11 @@ static int tri_inside_box(SculptTri t, SculptBox box) {
 }
 
 static SculptVec3 relax_vertex(SculptVec3 v, SculptVec3 center, float amount) {
-    if (amount < 0.0f) amount = 0.0f;
-    if (amount > 0.5f) amount = 0.5f;
+    float safe_amt = clamp_float(amount, 0.0f, 0.45f);
     SculptVec3 out;
-    out.x = v.x + (center.x - v.x) * amount;
-    out.y = v.y + (center.y - v.y) * amount;
-    out.z = v.z + (center.z - v.z) * amount;
+    out.x = v.x + (center.x - v.x) * safe_amt;
+    out.y = v.y + (center.y - v.y) * safe_amt;
+    out.z = v.z + (center.z - v.z) * safe_amt;
     return out;
 }
 
@@ -108,13 +128,13 @@ void sculpt_scene_free(SculptScene *scene) {
 
 int sculpt_checkpoint(SculptScene *scene) {
     if (!scene) return -1;
-    if (scene->count > scene->prev_capacity) {
+    if (scene->count > 0 && scene->count > scene->prev_capacity) {
         SculptTri *buf = (SculptTri *)realloc(scene->prev_tris, scene->count * sizeof(SculptTri));
         if (!buf) return -1;
         scene->prev_tris = buf;
         scene->prev_capacity = scene->count;
     }
-    if (scene->count > 0) {
+    if (scene->count > 0 && scene->tris && scene->prev_tris) {
         memcpy(scene->prev_tris, scene->tris, scene->count * sizeof(SculptTri));
     }
     scene->prev_count = scene->count;
@@ -124,8 +144,8 @@ int sculpt_checkpoint(SculptScene *scene) {
 
 int sculpt_undo(SculptScene *scene) {
     if (!scene || !scene->has_prev) return -1;
-    if (ensure_capacity(scene, scene->prev_count) != 0) return -1;
     if (scene->prev_count > 0) {
+        if (ensure_capacity(scene, scene->prev_count) != 0) return -1;
         memcpy(scene->tris, scene->prev_tris, scene->prev_count * sizeof(SculptTri));
     }
     scene->count = scene->prev_count;
@@ -149,29 +169,44 @@ int sculpt_reset(SculptScene *scene) {
     return emit_box_tris(scene, starter);
 }
 
+size_t sculpt_active_count(const SculptScene *scene) {
+    if (!scene || !scene->tris) return 0;
+    size_t active = 0;
+    for (size_t i = 0; i < scene->count; ++i) {
+        if (scene->tris[i].active) {
+            active++;
+        }
+    }
+    return active;
+}
+
 void sculpt_set_cube_mode(SculptScene *scene, SculptCubeMode mode) {
     if (!scene) return;
-    scene->cube_mode = mode;
+    if (mode == SCULPT_MODE_ADD || mode == SCULPT_MODE_ERASE) {
+        scene->cube_mode = mode;
+    }
 }
 
 void sculpt_set_cube_box(SculptScene *scene, SculptBox box) {
     if (!scene) return;
-    scene->cube = box;
+    scene->cube = normalize_box(box);
 }
 
 int sculpt_add_box(SculptScene *scene, SculptBox box) {
     if (!scene) return -1;
     if (sculpt_checkpoint(scene) != 0) return -1;
-    scene->last_box = box;
-    return emit_box_tris(scene, box);
+    SculptBox norm = normalize_box(box);
+    scene->last_box = norm;
+    return emit_box_tris(scene, norm);
 }
 
 int sculpt_clone_box(SculptScene *scene, SculptBox src, float dx, float dy, float dz) {
     if (!scene) return -1;
+    SculptBox norm_src = normalize_box(src);
     SculptBox moved = {
-        src.min_x + dx, src.max_x + dx,
-        src.min_y + dy, src.max_y + dy,
-        src.min_z + dz, src.max_z + dz
+        norm_src.min_x + dx, norm_src.max_x + dx,
+        norm_src.min_y + dy, norm_src.max_y + dy,
+        norm_src.min_z + dz, norm_src.max_z + dz
     };
     return sculpt_add_box(scene, moved);
 }
@@ -182,7 +217,7 @@ size_t sculpt_apply_cube(SculptScene *scene) {
 
     if (scene->cube_mode == SCULPT_MODE_ADD) {
         if (emit_box_tris(scene, scene->cube) == 0) {
-            scene->last_box = scene->cube;
+            scene->last_box = normalize_box(scene->cube);
             return 12;
         }
         return 0;
@@ -199,7 +234,7 @@ size_t sculpt_apply_cube(SculptScene *scene) {
 }
 
 void sculpt_smooth_step(SculptScene *scene, float amount) {
-    if (!scene || scene->count == 0) return;
+    if (!scene || scene->count == 0 || !scene->tris) return;
     if (sculpt_checkpoint(scene) != 0) return;
 
     SculptVec3 sum = {0.0f, 0.0f, 0.0f};
@@ -227,6 +262,23 @@ void sculpt_smooth_step(SculptScene *scene, float amount) {
     }
 }
 
+SculptShortcut sculpt_map_char(char ch) {
+    if (ch >= 'A' && ch <= 'Z') {
+        ch = (char)(ch - 'A' + 'a');
+    }
+    switch (ch) {
+        case 'c': return SCULPT_KEY_CLONE;
+        case 'a':
+        case 'd': return SCULPT_KEY_ATTACH_ADD;
+        case 'r': return SCULPT_KEY_ERASE_CUBE;
+        case 's': return SCULPT_KEY_SMOOTH;
+        case 'u': return SCULPT_KEY_UNDO;
+        case 'x':
+        case '0': return SCULPT_KEY_SAFE_RESET;
+        default:  return SCULPT_KEY_NONE;
+    }
+}
+
 int sculpt_handle_shortcut(SculptScene *scene, SculptShortcut key) {
     if (!scene) return -1;
     switch (key) {
@@ -237,7 +289,8 @@ int sculpt_handle_shortcut(SculptScene *scene, SculptShortcut key) {
             return sculpt_add_box(scene, scene->cube);
         case SCULPT_KEY_ERASE_CUBE:
             sculpt_set_cube_mode(scene, SCULPT_MODE_ERASE);
-            return (sculpt_apply_cube(scene) > 0 || scene->count == 0) ? 0 : 0;
+            (void)sculpt_apply_cube(scene);
+            return 0;
         case SCULPT_KEY_SMOOTH:
             sculpt_smooth_step(scene, scene->smooth_strength);
             return 0;
@@ -249,6 +302,11 @@ int sculpt_handle_shortcut(SculptScene *scene, SculptShortcut key) {
         default:
             return 0;
     }
+}
+
+int sculpt_handle_char(SculptScene *scene, char ch) {
+    if (!scene) return -1;
+    return sculpt_handle_shortcut(scene, sculpt_map_char(ch));
 }
 
 void sculpt_run_tutorial_35s(SculptScene *scene) {

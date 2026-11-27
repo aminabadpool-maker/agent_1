@@ -9,16 +9,20 @@ int main(void) {
     }
 
     sculpt_run_tutorial_35s(&scene);
-    printf("After 35s tutorial: %zu tris\n", scene.count);
+    printf("After 35s tutorial: active=%zu / total=%zu\n",
+           sculpt_active_count(&scene), scene.count);
 
-    sculpt_handle_shortcut(&scene, SCULPT_KEY_CLONE);
-    printf("After clone shortcut: %zu tris\n", scene.count);
+    sculpt_handle_char(&scene, 'c');
+    printf("After clone ('c'): active=%zu / total=%zu\n",
+           sculpt_active_count(&scene), scene.count);
 
-    sculpt_handle_shortcut(&scene, SCULPT_KEY_SAFE_RESET);
-    printf("After safe reset: %zu tris\n", scene.count);
+    sculpt_handle_char(&scene, 'x');
+    printf("After safe reset ('x'): active=%zu / total=%zu\n",
+           sculpt_active_count(&scene), scene.count);
 
-    sculpt_undo(&scene);
-    printf("After undo of safe reset: %zu tris\n", scene.count);
+    sculpt_handle_char(&scene, 'u');
+    printf("After undo ('u'): active=%zu / total=%zu\n",
+           sculpt_active_count(&scene), scene.count);
 
     sculpt_scene_free(&scene);
     return 0;
