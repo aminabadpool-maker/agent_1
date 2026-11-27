@@ -359,10 +359,12 @@ static Vec3 v3_add(Vec3 a, Vec3 b) {
     return r;
 }
 
-static Vec3 v3_scale(Vec3 a, float s) {
+#if 0
+static inline Vec3 v3_scale(Vec3 a, float s) {
     Vec3 r = { a.x * s, a.y * s, a.z * s };
     return r;
 }
+#endif
 
 static Vec3 v3_cross(Vec3 a, Vec3 b) {
     Vec3 r = {
@@ -1225,24 +1227,45 @@ static int render_frame(
     }
     Vec3 *anim_v = g_anim_v;
 
+    int has_rz = (fabsf(rot_offset.z) > 1e-6f) ? 1 : 0;
+    float cz = has_rz ? cosf(rot_offset.z) : 1.0f;
+    float sz = has_rz ? sinf(rot_offset.z) : 0.0f;
+
     for (int i = 0; i < s->vcount; i++) {
-        Vec3 v = v3_scale(s->verts[i], scene_scale);
-        if (fabsf(rot_offset.z) > 1e-6f) {
-            v = rot_xyz(v, 0.0f, 0.0f, rot_offset.z);
+        float vx = s->verts[i].x * scene_scale;
+        float vy = s->verts[i].y * scene_scale;
+        float vz = s->verts[i].z * scene_scale;
+        if (has_rz) {
+            float nx = vx * cz - vy * sz;
+            float ny = vx * sz + vy * cz;
+            vx = nx;
+            vy = ny;
         }
-        anim_v[i] = v;
+        anim_v[i].x = vx;
+        anim_v[i].y = vy;
+        anim_v[i].z = vz;
     }
 
     for (int oi = 0; oi < s->obj_count; oi++) {
         ObjectSpan sp = s->objs[oi];
         if (!sp.visible) continue;
         if (fabsf(sp.spin_y) > 1e-5f) {
-            Vec3 scaled_c = v3_scale(sp.center, scene_scale);
+            float cx = sp.center.x * scene_scale;
+            float cy = sp.center.y * scene_scale;
+            float cz_c = sp.center.z * scene_scale;
             float angle = phase * sp.spin_y;
-            for (int vi = sp.v_start; vi < sp.v_start + sp.v_count && vi < s->vcount; vi++) {
-                Vec3 rel = v3_sub(anim_v[vi], scaled_c);
-                Vec3 rot = rot_xyz(rel, 0.0f, angle, 0.0f);
-                anim_v[vi] = v3_add(scaled_c, rot);
+            float ca = cosf(angle);
+            float sa = sinf(angle);
+            int v_end = sp.v_start + sp.v_count;
+            if (v_end > s->vcount) v_end = s->vcount;
+            for (int vi = sp.v_start; vi < v_end; vi++) {
+                float rx = anim_v[vi].x - cx;
+                float rz = anim_v[vi].z - cz_c;
+                float nx = rx * ca + rz * sa;
+                float nz = -rx * sa + rz * ca;
+                anim_v[vi].x = cx + nx;
+                anim_v[vi].y = cy + (anim_v[vi].y - cy);
+                anim_v[vi].z = cz_c + nz;
             }
         }
     }
@@ -1251,6 +1274,11 @@ static int render_frame(
     Camera view_cam = frame_cam;
     view_cam.pos.x = 0.0f;
     view_cam.pos.y = 0.0f;
+
+    float cp = cosf(view_cam.pitch);
+    float sp_ang = sinf(view_cam.pitch);
+    float cy_ang = cosf(view_cam.yaw);
+    float sy_ang = sinf(view_cam.yaw);
 
     for (int oi = 0; oi < s->obj_count; oi++) {
         ObjectSpan sp = s->objs[oi];
@@ -1262,9 +1290,22 @@ static int render_frame(
             if (!validate_tri_indices(t.v0, t.v1, t.v2, s->vcount)) {
                 continue;
             }
-            Vec3 p0 = rot_xyz(v3_add(anim_v[t.v0], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
-            Vec3 p1 = rot_xyz(v3_add(anim_v[t.v1], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
-            Vec3 p2 = rot_xyz(v3_add(anim_v[t.v2], cam_shift), view_cam.pitch, view_cam.yaw, 0.0f);
+
+            Vec3 a0 = v3_add(anim_v[t.v0], cam_shift);
+            float y1_0 = a0.y * cp - a0.z * sp_ang;
+            float z1_0 = a0.y * sp_ang + a0.z * cp;
+            Vec3 p0 = { a0.x * cy_ang + z1_0 * sy_ang, y1_0, -a0.x * sy_ang + z1_0 * cy_ang };
+
+            Vec3 a1 = v3_add(anim_v[t.v1], cam_shift);
+            float y1_1 = a1.y * cp - a1.z * sp_ang;
+            float z1_1 = a1.y * sp_ang + a1.z * cp;
+            Vec3 p1 = { a1.x * cy_ang + z1_1 * sy_ang, y1_1, -a1.x * sy_ang + z1_1 * cy_ang };
+
+            Vec3 a2 = v3_add(anim_v[t.v2], cam_shift);
+            float y1_2 = a2.y * cp - a2.z * sp_ang;
+            float z1_2 = a2.y * sp_ang + a2.z * cp;
+            Vec3 p2 = { a2.x * cy_ang + z1_2 * sy_ang, y1_2, -a2.x * sy_ang + z1_2 * cy_ang };
+
             raster_tri(p0, p1, p2, &view_cam, &t, s->lights, s->light_count, s->world.ambient);
         }
     }
