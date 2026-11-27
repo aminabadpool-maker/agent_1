@@ -1,17 +1,13 @@
-# agent_1 - Render Queue & Resource Guard
+# agent_1
 
-Lightweight C11 resource validation and batch-sizing guard for multi-job rendering pipelines.
+Lightweight C11 task execution, safety-guard, and render verification suite for Termux/Android and Linux.
 
-## Overview
-- tools/safe_batch.h: single source of truth for validation, disk queue checks, overflow checks, and 4K batch cap (64).
-- tools/pi_guard.c: CLI guard checking RAM, thermal limits, and free disk via statvfs.
-- Makefile & tools/test_final_guard.c: automated guard-check target and C11 unit tests.
+## Key Capabilities
+- Strict C11 tools (-std=c11 -O2 -Wall -Wextra -Werror) including render_summary_report, render_batch_report, and render_metrics_guard.
+- Multi-layer verification targets in Makefile: safety-check, e2e-check, mb-check, full-check, and stress-full-check.
+- Deterministic status lines and non-zero exit codes on invalid frames or size drift.
 
-## Build and Run
-gcc -std=c11 -O2 -Wall -Wextra -I. -I./tools tools/pi_guard.c -o tools/pi_guard
-make guard-check
-./tools/pi_guard 3840 2160 300 2048 8 256 512 4096 75.0 ./out 20
-
-## Sample Outputs
-- Pass (20 jobs x 512MB): [GUARD PASS] ram=3799MB disk=46255MB temp=37.0C threads=8 batch=64
-- Block (20 jobs x 2313MB > 46256MB): [GUARD BLOCK] rc=-2
+## Quick Start
+1. cd ~/agent_1
+2. make full-check
+3. make stress-full-check

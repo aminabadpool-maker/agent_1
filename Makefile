@@ -150,18 +150,18 @@ queue-check:
 .PHONY: safety-check
 safety-check:
 	@echo "[SAFETY-CHECK] Building & testing full 7-module C11 safety suite..."
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/safe_alloc_guard.c -o tools/safe_alloc_guard
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/safe_line_reader.c -o tools/safe_line_reader
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/safe_path_guard.c -o tools/safe_path_guard
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/resource_gate.c -o tools/resource_gate
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/job_budget_planner.c -o tools/job_budget_planner
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/xml_scene_guard.c -o tools/xml_scene_guard
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/timed_exec_guard.c -o tools/timed_exec_guard
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/render_artifact_guard.c -o tools/render_artifact_guard
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/render_summary_report.c -o tools/render_summary_report
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/render_batch_queue.c -o tools/render_batch_queue
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/queue_validator.c -o tools/queue_validator
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/render_batch_report.c -o tools/render_batch_report
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/safe_alloc_guard.c -o tools/safe_alloc_guard
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/safe_line_reader.c -o tools/safe_line_reader
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/safe_path_guard.c -o tools/safe_path_guard
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/resource_gate.c -o tools/resource_gate
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/job_budget_planner.c -o tools/job_budget_planner
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/xml_scene_guard.c -o tools/xml_scene_guard
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/timed_exec_guard.c -o tools/timed_exec_guard
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/render_artifact_guard.c -o tools/render_artifact_guard
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/render_summary_report.c -o tools/render_summary_report
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/render_batch_queue.c -o tools/render_batch_queue
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/queue_validator.c -o tools/queue_validator
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/render_batch_report.c -o tools/render_batch_report
 	@./tools/safe_alloc_guard --test
 	@./tools/safe_line_reader --test
 	@./tools/safe_path_guard --test
@@ -182,7 +182,7 @@ safety-check:
 .PHONY: safety-stress
 safety-stress:
 	@echo "[SAFETY-STRESS] Compiling & running 1000+ edge-case C11 stress checks..."
-	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/heavy_safety_stress.c -o tools/heavy_safety_stress
+	@$(CC) -std=c11 -O2 -Wall -Wextra -Werror tools/heavy_safety_stress.c -o tools/heavy_safety_stress
 	@AGENT1_TOOLS_DIR=tools ./tools/heavy_safety_stress
 	@rm -f tools/heavy_safety_stress
 	@echo "[SAFETY-STRESS] Heavy C11 stress verification passed."
