@@ -980,11 +980,11 @@ static void clear_buffers(unsigned char r, unsigned char g, unsigned char b) {
     if (r == g && g == b) {
         memset(fb_flat, r, npix * 3u);
     } else {
+        unsigned char *dst = fb_flat;
         for (size_t i = 0; i < npix; i++) {
-            size_t base = i * 3u;
-            fb_flat[base + 0u] = r;
-            fb_flat[base + 1u] = g;
-            fb_flat[base + 2u] = b;
+            *dst++ = r;
+            *dst++ = g;
+            *dst++ = b;
         }
     }
     for (size_t i = 0; i < npix; i++) {
@@ -1318,17 +1318,17 @@ static int render_frame(
     }
 
     for (int oi = 0; oi < s->obj_count; oi++) {
-        ObjectSpan sp = s->objs[oi];
-        if (!sp.visible) continue;
-        int t_end = sp.t_start + sp.t_count;
+        const ObjectSpan *sp = &s->objs[oi];
+        if (!sp->visible) continue;
+        int t_end = sp->t_start + sp->t_count;
         if (t_end > s->tcount) t_end = s->tcount;
-        for (int i = sp.t_start; i < t_end; i++) {
-            Tri t = s->tris[i];
-            if (!validate_tri_indices(t.v0, t.v1, t.v2, s->vcount)) {
+        for (int i = sp->t_start; i < t_end; i++) {
+            const Tri *t = &s->tris[i];
+            if (!validate_tri_indices(t->v0, t->v1, t->v2, s->vcount)) {
                 continue;
             }
-            raster_tri(view_v[t.v0], view_v[t.v1], view_v[t.v2],
-                       &view_cam, &t, s->lights, s->light_count, s->world.ambient);
+            raster_tri(view_v[t->v0], view_v[t->v1], view_v[t->v2],
+                       &view_cam, t, s->lights, s->light_count, s->world.ambient);
         }
     }
 
