@@ -21,7 +21,7 @@ TELEMETRY_LOG ?= renders/pi_run/telemetry.jsonl
 
 TARGETS := tools/pi_budget tools/pi_lib_demo tools/pi_telemetry tools/pi_guard tools/pi_stress
 
-.PHONY: all check health plan telemetry log-summary guard stress safe-run clean e2e-check mb-check
+.PHONY: all check health plan telemetry log-summary guard stress safe-run clean e2e-check mb-check full-check
 
 all: $(TARGETS)
 
@@ -194,3 +194,6 @@ e2e-check:
 mb-check:
 	@chmod +x ./tools/check_mini_blender_frames.sh
 	@./tools/check_mini_blender_frames.sh
+
+full-check: safety-check e2e-check mb-check
+	@echo "[FULL-CHECK] All safety, e2e, and mini_blender checks passed."
