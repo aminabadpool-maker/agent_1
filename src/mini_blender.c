@@ -83,6 +83,8 @@ static unsigned char *fb_flat = NULL;
 static float *zbuf_flat = NULL;
 static Vec3 *g_anim_v = NULL;
 static int g_anim_v_cap = 0;
+static Vec3 *g_view_v = NULL;
+static int g_view_v_cap = 0;
 
 static int mb_alloc_buffers(int w, int h) {
     if (w < 16 || h < 16 || w > 4096 || h > 4096) return 0;
@@ -1275,10 +1277,29 @@ static int render_frame(
     view_cam.pos.x = 0.0f;
     view_cam.pos.y = 0.0f;
 
+    if (need_v > g_view_v_cap) {
+        Vec3 *grown_view = realloc(g_view_v, sizeof(Vec3) * (size_t)need_v);
+        if (!grown_view) return 0;
+        g_view_v = grown_view;
+        g_view_v_cap = need_v;
+    }
+    Vec3 *view_v = g_view_v;
+
     float cp = cosf(view_cam.pitch);
     float sp_ang = sinf(view_cam.pitch);
     float cy_ang = cosf(view_cam.yaw);
     float sy_ang = sinf(view_cam.yaw);
+
+    for (int i = 0; i < s->vcount; i++) {
+        float ax = anim_v[i].x + cam_shift.x;
+        float ay = anim_v[i].y + cam_shift.y;
+        float az = anim_v[i].z + cam_shift.z;
+        float y1 = ay * cp - az * sp_ang;
+        float z1 = ay * sp_ang + az * cp;
+        view_v[i].x = ax * cy_ang + z1 * sy_ang;
+        view_v[i].y = y1;
+        view_v[i].z = -ax * sy_ang + z1 * cy_ang;
+    }
 
     for (int oi = 0; oi < s->obj_count; oi++) {
         ObjectSpan sp = s->objs[oi];
@@ -1290,23 +1311,8 @@ static int render_frame(
             if (!validate_tri_indices(t.v0, t.v1, t.v2, s->vcount)) {
                 continue;
             }
-
-            Vec3 a0 = v3_add(anim_v[t.v0], cam_shift);
-            float y1_0 = a0.y * cp - a0.z * sp_ang;
-            float z1_0 = a0.y * sp_ang + a0.z * cp;
-            Vec3 p0 = { a0.x * cy_ang + z1_0 * sy_ang, y1_0, -a0.x * sy_ang + z1_0 * cy_ang };
-
-            Vec3 a1 = v3_add(anim_v[t.v1], cam_shift);
-            float y1_1 = a1.y * cp - a1.z * sp_ang;
-            float z1_1 = a1.y * sp_ang + a1.z * cp;
-            Vec3 p1 = { a1.x * cy_ang + z1_1 * sy_ang, y1_1, -a1.x * sy_ang + z1_1 * cy_ang };
-
-            Vec3 a2 = v3_add(anim_v[t.v2], cam_shift);
-            float y1_2 = a2.y * cp - a2.z * sp_ang;
-            float z1_2 = a2.y * sp_ang + a2.z * cp;
-            Vec3 p2 = { a2.x * cy_ang + z1_2 * sy_ang, y1_2, -a2.x * sy_ang + z1_2 * cy_ang };
-
-            raster_tri(p0, p1, p2, &view_cam, &t, s->lights, s->light_count, s->world.ambient);
+            raster_tri(view_v[t.v0], view_v[t.v1], view_v[t.v2],
+                       &view_cam, &t, s->lights, s->light_count, s->world.ambient);
         }
     }
 
