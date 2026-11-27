@@ -158,6 +158,8 @@ safety-check:
 	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/xml_scene_guard.c -o tools/xml_scene_guard
 	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/timed_exec_guard.c -o tools/timed_exec_guard
 	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/render_artifact_guard.c -o tools/render_artifact_guard
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/render_summary_report.c -o tools/render_summary_report
+	@gcc -std=c11 -O2 -Wall -Wextra -Werror tools/render_batch_queue.c -o tools/render_batch_queue
 	@./tools/safe_alloc_guard --test
 	@./tools/safe_line_reader --test
 	@./tools/safe_path_guard --test
@@ -166,9 +168,11 @@ safety-check:
 	@./tools/xml_scene_guard --test
 	@./tools/timed_exec_guard --test
 	@./tools/render_artifact_guard --test
+	@./tools/render_summary_report --test
+	@./tools/render_batch_queue --test
 	@rm -f tools/safe_alloc_guard tools/safe_line_reader tools/safe_path_guard \
 	       tools/resource_gate tools/job_budget_planner tools/xml_scene_guard \
-	       tools/timed_exec_guard tools/render_artifact_guard
+	       tools/timed_exec_guard tools/render_artifact_guard tools/render_summary_report tools/render_batch_queue
 	@echo "[SAFETY-CHECK] All 7 C11 safety modules passed."
 
 .PHONY: safety-stress
