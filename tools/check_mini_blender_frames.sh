@@ -10,6 +10,7 @@ WORK_DIR="$(mktemp -d "$TMP_BASE/agent1_mb_real.XXXXXX")"
 BIN_MB="$WORK_DIR/mini_blender"
 BIN_SUM="$WORK_DIR/render_summary_report"
 BIN_BATCH="$WORK_DIR/render_batch_report"
+BIN_METRICS="$WORK_DIR/render_metrics_guard"
 
 cleanup() {
   rm -rf "$WORK_DIR"
@@ -19,6 +20,7 @@ trap cleanup EXIT
 gcc -std=c11 -O2 -Wall -Wextra -Werror "$SRC_MB" -lm -o "$BIN_MB"
 gcc -std=c11 -O2 -Wall -Wextra -Werror "$TOOLS_DIR/render_summary_report.c" -o "$BIN_SUM"
 gcc -std=c11 -O2 -Wall -Wextra -Werror "$TOOLS_DIR/render_batch_report.c" -o "$BIN_BATCH"
+gcc -std=c11 -O2 -Wall -Wextra -Werror "$TOOLS_DIR/render_metrics_guard.c" -o "$BIN_METRICS"
 
 START_TS="$(date +%s)"
 (
@@ -44,3 +46,4 @@ for ppm in "${REAL_PPMS[@]}"; do
 done
 
 "$BIN_BATCH" "${REAL_PPMS[@]}"
+"$BIN_METRICS" --max-drift-pct 15 "${REAL_PPMS[@]}"
