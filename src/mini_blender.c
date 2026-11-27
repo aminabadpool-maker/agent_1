@@ -1085,6 +1085,9 @@ static void raster_tri(
 
     float inv_area = 1.0f / area;
     int pos_area = (area > 0.0f) ? 1 : 0;
+    float cz0 = inv_area * z0;
+    float cz1 = inv_area * z1;
+    float cz2 = inv_area * z2;
 
     float start_x = (float)min_x + 0.5f;
     float start_y = (float)min_y + 0.5f;
@@ -1105,21 +1108,20 @@ static void raster_tri(
         float w0 = w0_row;
         float w1 = w1_row;
         float w2 = w2_row;
+        size_t row_off = (size_t)y * (size_t)g_ren_w;
 
         for (int x = min_x; x <= max_x; x++) {
             int inside = pos_area ? (w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f)
                                   : (w0 <= 0.0f && w1 <= 0.0f && w2 <= 0.0f);
             if (inside) {
-                float bw0 = w0 * inv_area;
-                float bw1 = w1 * inv_area;
-                float bw2 = w2 * inv_area;
-
-                float z = bw0 * z0 + bw1 * z1 + bw2 * z2;
-                if (z < ZB_AT(x, y)) {
-                    ZB_AT(x, y) = z;
-                    FB_AT(x, y, 0) = sr;
-                    FB_AT(x, y, 1) = sg;
-                    FB_AT(x, y, 2) = sb;
+                float z = w0 * cz0 + w1 * cz1 + w2 * cz2;
+                size_t pix_idx = row_off + (size_t)x;
+                if (z < zbuf_flat[pix_idx]) {
+                    zbuf_flat[pix_idx] = z;
+                    size_t fb_idx = pix_idx * 3u;
+                    fb_flat[fb_idx + 0u] = sr;
+                    fb_flat[fb_idx + 1u] = sg;
+                    fb_flat[fb_idx + 2u] = sb;
                 }
             }
             w0 += dw0_dx;
